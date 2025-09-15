@@ -1,3 +1,4 @@
+// src/components/chat/ChatBot.tsx
 import React, { useState, useRef, useEffect } from 'react';
 import { Send, Bot, User } from 'lucide-react';
 import { useAuthStore } from '../../stores/authStore';
@@ -80,33 +81,26 @@ export const ChatBot: React.FC = () => {
     if (message.includes('hello') || message.includes('hi') || message.includes('hey')) {
       return getRandomResponse('greeting');
     }
-    
     if (message.includes('progress') || message.includes('level') || message.includes('xp')) {
       return getRandomResponse('progress');
     }
-    
     if (message.includes('module') || message.includes('course') || message.includes('learn') || message.includes('recommend')) {
       return getRandomResponse('modules');
     }
-    
     if (message.includes('policy') || message.includes('remote') || message.includes('vacation') || message.includes('time off')) {
       return getRandomResponse('policies');
     }
-    
     if (message.includes('benefit') || message.includes('insurance') || message.includes('401k') || message.includes('health')) {
       return getRandomResponse('benefits');
     }
-    
     if (message.includes('tip') || message.includes('advice') || message.includes('help') || message.includes('how')) {
       return getRandomResponse('tips');
     }
-    
-    // Personalized responses
+
     if (user) {
       if (message.includes('my progress')) {
         return `Hi ${user.firstName}! You're currently at Level ${user.level} with ${user.currentXp.toLocaleString()} XP. You have a ${user.streakDays}-day learning streak - that's fantastic! Keep up the great work!`;
       }
-      
       if (message.includes('next step') || message.includes('what should i do')) {
         if (user.level < 5) {
           return `${user.firstName}, I recommend completing the 'Company Values & Culture' module next. It's perfect for your current level and will help you understand our company better!`;
@@ -115,7 +109,6 @@ export const ChatBot: React.FC = () => {
         }
       }
     }
-    
     return getRandomResponse('default');
   };
 
@@ -133,7 +126,6 @@ export const ChatBot: React.FC = () => {
     setInputValue('');
     setIsTyping(true);
 
-    // Simulate typing delay
     setTimeout(() => {
       const botResponse: ChatMessage = {
         id: (Date.now() + 1).toString(),
@@ -144,7 +136,7 @@ export const ChatBot: React.FC = () => {
 
       setMessages(prev => [...prev, botResponse]);
       setIsTyping(false);
-    }, 1000 + Math.random() * 1000); // Random delay between 1-2 seconds
+    }, 1000 + Math.random() * 1000);
   };
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
@@ -157,7 +149,7 @@ export const ChatBot: React.FC = () => {
   return (
     <div className="flex flex-col h-full">
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-4">
+      <div className="flex-1 overflow-y-auto p-4 space-y-4 max-h-[calc(100vh-200px)]">
         {messages.map((message) => (
           <div
             key={message.id}
