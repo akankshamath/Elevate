@@ -63,6 +63,7 @@ export const AppShell: React.FC<AppShellProps> = ({ children }) => {
           </div>
 
           {/* Center - Search (hidden on mobile) */}
+          {/*
           <div className="hidden md:flex items-center flex-1 max-w-md mx-8">
             <div className="relative w-full">
               <Search className="w-5 h-5 text-[#4A5568] absolute left-3 top-1/2 transform -translate-y-1/2" />
@@ -73,6 +74,7 @@ export const AppShell: React.FC<AppShellProps> = ({ children }) => {
               />
             </div>
           </div>
+          */}
 
           {/* Right side */}
           <div className="flex items-center gap-4">
