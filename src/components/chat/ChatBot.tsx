@@ -9,50 +9,12 @@ interface ChatMessage {
   timestamp: Date;
 }
 
-const botResponses = {
-  greeting: [
-    "Hi there! I'm your AI Career Coach. How can I help you today?",
-    "Hello! I'm here to support your learning journey. What would you like to know?",
-    "Welcome! I'm your personal AI assistant. How can I assist you?"
-  ],
-  progress: [
-    "You're making great progress! You've completed several modules and are building a solid foundation.",
-    "Your learning streak is impressive! Keep up the consistent effort.",
-    "Based on your current level, I recommend focusing on the Leadership Fundamentals module next."
-  ],
-  modules: [
-    "I recommend starting with 'Company Values & Culture' - it's perfect for new employees and will give you 150 XP!",
-    "The 'Information Security Basics' module is mandatory and worth 200 XP. It's a great next step!",
-    "For skill development, try 'Communication Skills' - it's highly rated and will boost your professional growth."
-  ],
-  policies: [
-    "Our remote work policy allows up to 3 days per week with manager approval. Would you like more details?",
-    "New employees get 15 vacation days per year, increasing to 20 after 3 years of service.",
-    "For time off requests, submit through the HR portal at least 2 weeks in advance."
-  ],
-  benefits: [
-    "We offer comprehensive health insurance, dental, vision, and a 401k with company matching.",
-    "Don't forget about our learning stipend - $1000 per year for professional development!",
-    "We have flexible work arrangements, wellness programs, and employee assistance programs."
-  ],
-  tips: [
-    "Try to maintain a daily learning streak - even 10 minutes a day makes a big difference!",
-    "Join study groups with your colleagues to make learning more engaging and social.",
-    "Set small, achievable goals each week to stay motivated and track your progress."
-  ],
-  default: [
-    "That's a great question! Let me help you with that.",
-    "I'm here to help! Could you be more specific about what you'd like to know?",
-    "I'd be happy to assist you. Can you tell me more about what you're looking for?"
-  ]
-};
-
 export const ChatBot: React.FC = () => {
   const [messages, setMessages] = useState<ChatMessage[]>([
     {
       id: '1',
       type: 'bot',
-      content: "Hi! I'm your AI Career Coach. I can help you with your learning journey, company policies, benefits, and provide personalized recommendations. What would you like to know?",
+      content: "Hi! I'm your AI Career Coach powered by OpenAI. I can help you with your learning journey, company policies, career development, and provide personalized recommendations. What would you like to know?",
       timestamp: new Date()
     }
   ]);
@@ -69,54 +31,66 @@ export const ChatBot: React.FC = () => {
     scrollToBottom();
   }, [messages]);
 
-  const getRandomResponse = (category: keyof typeof botResponses) => {
-    const responses = botResponses[category];
-    return responses[Math.floor(Math.random() * responses.length)];
-  };
+  const callOpenAI = async (userMessage: string): Promise<string> => {
+    try {
+      // Create user context for personalization
+      const userContext = user ? `
+        User Profile:
+        - Name: ${user.firstName} ${user.lastName}
+        - Role: ${user.role}
+        - Department: ${user.department}
+        - Level: ${user.level}
+        - Current XP: ${user.currentXp}
+        - Learning Streak: ${user.streakDays} days
+        - Manager: ${user.managerName}
+      ` : '';
 
-  const generateBotResponse = (userMessage: string): string => {
-    const message = userMessage.toLowerCase();
-    
-    if (message.includes('hello') || message.includes('hi') || message.includes('hey')) {
-      return getRandomResponse('greeting');
-    }
-    
-    if (message.includes('progress') || message.includes('level') || message.includes('xp')) {
-      return getRandomResponse('progress');
-    }
-    
-    if (message.includes('module') || message.includes('course') || message.includes('learn') || message.includes('recommend')) {
-      return getRandomResponse('modules');
-    }
-    
-    if (message.includes('policy') || message.includes('remote') || message.includes('vacation') || message.includes('time off')) {
-      return getRandomResponse('policies');
-    }
-    
-    if (message.includes('benefit') || message.includes('insurance') || message.includes('401k') || message.includes('health')) {
-      return getRandomResponse('benefits');
-    }
-    
-    if (message.includes('tip') || message.includes('advice') || message.includes('help') || message.includes('how')) {
-      return getRandomResponse('tips');
-    }
-    
-    // Personalized responses
-    if (user) {
-      if (message.includes('my progress')) {
-        return `Hi ${user.firstName}! You're currently at Level ${user.level} with ${user.currentXp.toLocaleString()} XP. You have a ${user.streakDays}-day learning streak - that's fantastic! Keep up the great work!`;
+      const systemPrompt = `You are an AI Career Coach for Elevate, a corporate learning and development platform. You help employees with:
+
+1. Learning recommendations and career development
+2. Company policies and procedures
+3. Professional growth advice
+4. Motivation and engagement
+
+Company Context:
+- Elevate is a gamified learning platform with XP, levels, and streaks
+- Employees complete modules to gain XP and advance levels
+- Focus areas: leadership development, technical skills, company culture
+- Available modules include: Company Values & Culture, Information Security, Communication Skills, Leadership Fundamentals
+
+${userContext}
+
+Keep responses:
+- Professional but friendly
+- Concise (2-3 sentences max)
+- Actionable and specific
+- Personalized when user context is available
+
+If asked about topics outside your scope, politely redirect to relevant resources or HR.`;
+
+      const response = await fetch('http://localhost:3001/api/chat', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: userMessage }
+          ]
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
       }
-      
-      if (message.includes('next step') || message.includes('what should i do')) {
-        if (user.level < 5) {
-          return `${user.firstName}, I recommend completing the 'Company Values & Culture' module next. It's perfect for your current level and will help you understand our company better!`;
-        } else {
-          return `${user.firstName}, you're ready for more advanced content! Try the 'Leadership Fundamentals' module to develop your leadership skills.`;
-        }
-      }
+
+      const data = await response.json();
+      return data.response || "I'm sorry, I couldn't generate a proper response. Please try again.";
+    } catch (error) {
+      console.error('Error calling OpenAI:', error);
+      return "I'm sorry, I'm having trouble connecting right now. Please try again in a moment, or contact IT support if the issue persists.";
     }
-    
-    return getRandomResponse('default');
   };
 
   const handleSendMessage = async () => {
@@ -130,21 +104,33 @@ export const ChatBot: React.FC = () => {
     };
 
     setMessages(prev => [...prev, userMessage]);
+    const currentInput = inputValue;
     setInputValue('');
     setIsTyping(true);
 
-    // Simulate typing delay
-    setTimeout(() => {
+    try {
+      const aiResponse = await callOpenAI(currentInput);
+      
       const botResponse: ChatMessage = {
         id: (Date.now() + 1).toString(),
         type: 'bot',
-        content: generateBotResponse(inputValue),
+        content: aiResponse,
         timestamp: new Date()
       };
 
       setMessages(prev => [...prev, botResponse]);
+    } catch (error) {
+      console.error('Chat error:', error);
+      const errorResponse: ChatMessage = {
+        id: (Date.now() + 1).toString(),
+        type: 'bot',
+        content: "I apologize, but I'm experiencing technical difficulties. Please try again or contact support if the problem continues.",
+        timestamp: new Date()
+      };
+      setMessages(prev => [...prev, errorResponse]);
+    } finally {
       setIsTyping(false);
-    }, 1000 + Math.random() * 1000); // Random delay between 1-2 seconds
+    }
   };
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
@@ -152,6 +138,10 @@ export const ChatBot: React.FC = () => {
       e.preventDefault();
       handleSendMessage();
     }
+  };
+
+  const handleSuggestionClick = (suggestion: string) => {
+    setInputValue(suggestion);
   };
 
   return (
@@ -183,7 +173,7 @@ export const ChatBot: React.FC = () => {
                   : 'bg-[#F5F7FA] text-[#0B2447]'
               }`}
             >
-              <p className="text-sm leading-relaxed">{message.content}</p>
+              <p className="text-sm leading-relaxed whitespace-pre-wrap">{message.content}</p>
               <p className={`text-xs mt-1 ${
                 message.type === 'user' ? 'text-blue-100' : 'text-[#4A5568]'
               }`}>
@@ -220,7 +210,7 @@ export const ChatBot: React.FC = () => {
             value={inputValue}
             onChange={(e) => setInputValue(e.target.value)}
             onKeyPress={handleKeyPress}
-            placeholder="Ask me anything about your learning journey..."
+            placeholder="Ask me anything about your career, learning, or company policies..."
             className="flex-1 px-3 py-2 border border-[#D6D9E0] rounded-xl focus:outline-none focus:ring-2 focus:ring-[#0A6ED1] focus:border-transparent resize-none"
             rows={1}
             style={{ minHeight: '40px', maxHeight: '120px' }}
@@ -237,14 +227,14 @@ export const ChatBot: React.FC = () => {
         {/* Quick suggestions */}
         <div className="flex flex-wrap gap-2 mt-3">
           {[
-            "What's my progress?",
-            "Recommend a module",
-            "Company policies",
-            "Learning tips"
+            "What should I learn next based on my role?",
+            "How can I improve my leadership skills?",
+            "What's our remote work policy?",
+            "Give me career development tips"
           ].map((suggestion) => (
             <button
               key={suggestion}
-              onClick={() => setInputValue(suggestion)}
+              onClick={() => handleSuggestionClick(suggestion)}
               className="px-3 py-1 bg-[#E8EAF6] text-[#0A6ED1] rounded-full text-xs hover:bg-[#0A6ED1] hover:text-white transition-colors"
             >
               {suggestion}
