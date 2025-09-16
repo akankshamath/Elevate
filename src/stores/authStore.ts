@@ -5,6 +5,7 @@ import { User } from '../types';
 interface AuthState {
   user: User | null;
   isAuthenticated: boolean;
+  setUser: (user: User) => void;
   login: (email: string, password: string) => Promise<User>;
   register: (data: RegisterData) => Promise<User>;
   logout: () => void;
@@ -20,10 +21,9 @@ interface RegisterData {
   role: string;
 }
 
-// Mock user data for demo
 const mockUsers: User[] = [
   {
-    id: 'admin',
+    id: '00000000-0000-0000-0000-000000000001',  // fake UUID
     email: 'admin@acme.com',
     firstName: 'Admin',
     lastName: 'User',
@@ -38,7 +38,7 @@ const mockUsers: User[] = [
     introCompleted: true,
   },
   {
-    id: 'jane',
+    id: '00000000-0000-0000-0000-000000000002', //fake
     email: 'jane@acme.com',
     firstName: 'Jane',
     lastName: 'Patel',
@@ -60,41 +60,91 @@ export const useAuthStore = create<AuthState>()(
       user: null,
       isAuthenticated: false,
 
-      login: async (email: string, password: string) => {
-        // Mock authentication
-        await new Promise(resolve => setTimeout(resolve, 1000));
-        
-        const user = mockUsers.find(u => u.email === email);
-        if (!user) {
-          throw new Error('Invalid credentials');
-        }
-
+      // ✅ simple setter for hydrating user manually
+      setUser: (user: User) => {
         set({ user, isAuthenticated: true });
-        return user;
+      },
+
+      login: async (email: string, password: string) => {
+        try {
+          const response = await fetch('http://localhost:3001/api/login', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email, password }),
+          });
+
+          if (response.ok) {
+            const data = await response.json();
+            if (data.success && data.user) {
+              const user: User = {
+                id: data.user.id,
+                email: data.user.email,
+                firstName: data.user.first_name,
+                lastName: data.user.last_name,
+                employeeId: data.user.employee_id,
+                department: data.user.department,
+                role: data.user.role,
+                managerName: data.user.manager_name,
+                startDate: data.user.start_date,
+                level: data.user.level,
+                currentXp: data.user.current_xp,
+                streakDays: data.user.streak_days,
+                introCompleted: data.user.intro_completed,
+              };
+              set({ user, isAuthenticated: true });
+              return user;
+            }
+          }
+
+          const mockUser = mockUsers.find(u => u.email === email);
+          if (mockUser) {
+            set({ user: mockUser, isAuthenticated: true });
+            return mockUser;
+          }
+
+          throw new Error('Invalid credentials');
+        } catch (error) {
+          console.error('Login error:', error);
+          throw new Error('Login failed');
+        }
       },
 
       register: async (data: RegisterData) => {
-        // Mock registration
-        await new Promise(resolve => setTimeout(resolve, 1500));
-        
-        const newUser: User = {
-          id: `user_${Date.now()}`,
-          email: data.email,
-          firstName: data.firstName,
-          lastName: data.lastName,
-          employeeId: data.employeeId,
-          department: 'Engineering',
-          role: data.role,
-          managerName: 'A. Chen',
-          startDate: new Date().toISOString().split('T')[0],
-          level: 1,
-          currentXp: 0,
-          streakDays: 0,
-          introCompleted: false,
-        };
+        try {
+          const response = await fetch('http://localhost:3001/api/register', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data),
+          });
 
-        set({ user: newUser, isAuthenticated: true });
-        return newUser;
+          const result = await response.json();
+
+          if (result.success && result.user) {
+            const user: User = {
+              id: result.user.id,
+              email: result.user.email,
+              firstName: result.user.first_name,
+              lastName: result.user.last_name,
+              employeeId: result.user.employee_id,
+              department: result.user.department,
+              role: result.user.role,
+              managerName: result.user.manager_name,
+              startDate: result.user.start_date,
+              level: result.user.level,
+              currentXp: result.user.current_xp,
+              streakDays: result.user.streak_days,
+              introCompleted: result.user.intro_completed,
+            };
+
+            set({ user, isAuthenticated: true });
+            return user;
+          } else {
+            throw new Error(result.error || 'Registration failed');
+          }
+        } catch (error) {
+          console.error('Registration error:', error);
+          throw new Error('Registration failed');
+        }
       },
 
       logout: () => {
@@ -106,28 +156,20 @@ export const useAuthStore = create<AuthState>()(
         if (currentUser) {
           const updatedUser = { ...currentUser, ...updates };
           set({ user: updatedUser });
-          
-          console.log('Auth Store Update:', { 
-            before: currentUser.currentXp, 
-            after: updatedUser.currentXp,
-            updates 
-          });
-          
-          // Force re-render by updating localStorage
+
           if (typeof window !== 'undefined') {
-            localStorage.setItem('auth-storage', JSON.stringify({
-              state: { user: updatedUser, isAuthenticated: true },
-              version: 0
-            }));
-            
-            // Force a storage event to trigger re-renders
+            localStorage.setItem(
+              'auth-storage',
+              JSON.stringify({
+                state: { user: updatedUser, isAuthenticated: true },
+                version: 0,
+              })
+            );
             window.dispatchEvent(new Event('storage'));
           }
         }
       },
     }),
-    {
-      name: 'auth-storage',
-    }
+    { name: 'auth-storage' }
   )
 );

@@ -1,145 +1,159 @@
-
 import { create } from "zustand";
-import { persist } from "zustand/middleware";
+import supabase from "../lib/supabase";
 
 export interface Task {
   id: string;
+  user_id: string;
   title: string;
   description: string;
   category: "HR" | "IT" | "Compliance" | "General";
-  dueDate: string;
+  dueDate: string;           
   points: number;
-  isMandatory: boolean;
+  isMandatory: boolean;          
   status: "todo" | "done" | "snoozed";
-  completedAt?: string;
+  completedAt?: string;         
 }
 
-// mock tasks (initial checklist)
-const mockTasks: Task[] = [
-  {
-    id: "1",
-    title: "Complete security training",
-    description: "Learn about company security policies and best practices",
-    category: "Compliance",
-    dueDate: "2024-12-15",
-    points: 20,
-    isMandatory: true,
-    status: "todo",
-  },
-  {
-    id: "2",
-    title: "Set up development environment",
-    description: "Install required software and configure your workspace",
-    category: "IT",
-    dueDate: "2024-12-16",
-    points: 15,
-    isMandatory: true,
-    status: "todo",
-  },
-  {
-    id: "3",
-    title: "Meet your mentor",
-    description: "Schedule and attend your first mentoring session",
-    category: "HR",
-    dueDate: "2024-12-18",
-    points: 25,
-    isMandatory: true,
-    status: "todo",
-  },
-  {
-    id: "4",
-    title: "Complete employee handbook review",
-    description: "Read through the employee handbook and acknowledge receipt",
-    category: "HR",
-    dueDate: "2024-12-20",
-    points: 10,
-    isMandatory: true,
-    status: "done",
-    completedAt: "2024-12-10",
-  },
-  {
-    id: "5",
-    title: "Join team Slack channels",
-    description: "Get added to relevant team communication channels",
-    category: "General",
-    dueDate: "2024-12-14",
-    points: 5,
-    isMandatory: false,
-    status: "done",
-    completedAt: "2024-12-11",
-  },
-  {
-    id: "6",
-    title: "Complete benefits enrollment",
-    description: "Review and select your health insurance and other benefits",
-    category: "HR",
-    dueDate: "2024-12-22",
-    points: 15,
-    isMandatory: true,
-    status: "todo",
-  },
-  {
-    id: "7",
-    title: "Attend new hire orientation",
-    description: "Join the company-wide new hire orientation session",
-    category: "HR",
-    dueDate: "2024-12-19",
-    points: 30,
-    isMandatory: true,
-    status: "snoozed",
-  },
-];
+type DbTask = {
+  id: string;
+  user_id: string;
+  title: string;
+  description: string | null;
+  category: string | null;
+  due_date: string | null;    
+  points: number | null;
+  is_mandatory: boolean | null;
+  status: "todo" | "done" | "snoozed" | null;
+  completed_at: string | null;
+};
+
+const fromDB = (row: DbTask): Task => ({
+  id: row.id,
+  user_id: row.user_id,
+  title: row.title,
+  description: row.description ?? "",
+  category: (row.category as Task["category"]) ?? "General",
+  dueDate: row.due_date ?? "",               
+  points: row.points ?? 0,
+  isMandatory: !!row.is_mandatory,           
+  status: (row.status as Task["status"]) ?? "todo",
+  completedAt: row.completed_at ?? undefined, 
+});
+
+// UI -> DB (only map provided fields)
+const toDB = (task: Partial<Task>) => ({
+  ...(task.id ? { id: task.id } : {}),
+  ...(task.user_id ? { user_id: task.user_id } : {}),
+  ...(task.title !== undefined ? { title: task.title } : {}),
+  ...(task.description !== undefined ? { description: task.description } : {}),
+  ...(task.category !== undefined ? { category: task.category } : {}),
+  ...(task.dueDate !== undefined ? { due_date: task.dueDate } : {}),      
+  ...(task.points !== undefined ? { points: task.points } : {}),
+  ...(task.isMandatory !== undefined ? { is_mandatory: task.isMandatory } : {}),
+  ...(task.status !== undefined ? { status: task.status } : {}),
+  ...(task.completedAt !== undefined ? { completed_at: task.completedAt } : {}),
+});
 
 interface TaskState {
   tasks: Task[];
-  completeTask: (id: string) => void;
-  snoozeTask: (id: string) => void;
-  addTask: (task: Task) => void;
-  editTask: (id: string, updates: Partial<Task>) => void;
-  deleteTask: (id: string) => void;
-  resetTasks: () => void;
+  fetchTasks: (userId: string) => Promise<void>;
+  addTask: (task: Omit<Task, "id">) => Promise<void>;
+  completeTask: (id: string) => Promise<void>;
+  snoozeTask: (id: string) => Promise<void>;
+  editTask: (id: string, updates: Partial<Task>) => Promise<void>;
+  deleteTask: (id: string) => Promise<void>;
 }
 
-export const useTaskStore = create<TaskState>()(
-  persist(
-    (set) => ({
-      tasks: mockTasks,
+export const useTaskStore = create<TaskState>((set, get) => ({
+  tasks: [],
 
-      completeTask: (id) =>
-        set((state) => ({
-          tasks: state.tasks.map((t) =>
-            t.id === id && t.status !== "done"
-              ? { ...t, status: "done", completedAt: new Date().toISOString() }
-              : t
-          ),
-        })),
+  fetchTasks: async (userId) => {
+    const { data, error } = await supabase
+      .from("tasks")
+      .select("*")
+      .eq("user_id", userId)
+      .order("due_date", { ascending: true });
 
-      snoozeTask: (id) =>
-        set((state) => ({
-          tasks: state.tasks.map((t) =>
-            t.id === id ? { ...t, status: "snoozed" } : t
-          ),
-        })),
+    if (error) {
+      console.error("Error fetching tasks:", error);
+      return;
+    }
+    set({ tasks: (data as DbTask[]).map(fromDB) });
+  },
 
-      addTask: (task) =>
-        set((state) => ({
-          tasks: [...state.tasks, task],
-        })),
+  addTask: async (task) => {
+    const { data, error } = await supabase
+      .from("tasks")
+      .insert([toDB(task)])
+      .select("*");
 
-      editTask: (id, updates) =>
-        set((state) => ({
-          tasks: state.tasks.map((t) =>
-            t.id === id ? { ...t, ...updates } : t
-          ),
-        })),
+    if (error) {
+      console.error("Error adding task:", error);
+      return;
+    }
+    const inserted = (data as DbTask[])[0];
+    set((state) => ({ tasks: [...state.tasks, fromDB(inserted)] }));
+  },
 
-      deleteTask: (id) =>
-        set((state) => ({
-          tasks: state.tasks.filter((t) => t.id !== id),
-        })),
+  completeTask: async (id) => {
+    const ts = new Date().toISOString();
+    const { error } = await supabase
+      .from("tasks")
+      .update({ status: "done", completed_at: ts })
+      .eq("id", id);
 
-      resetTasks: () => set({ tasks: mockTasks }),
-    }),
-    { name: "task-storage" }
-  )
-);
+    if (error) {
+      console.error("Error completing task:", error);
+      return;
+    }
+
+    set((state) => ({
+      tasks: state.tasks.map((t) =>
+        t.id === id ? { ...t, status: "done", completedAt: ts } : t
+      ),
+    }));
+  },
+
+  snoozeTask: async (id) => {
+    const { error } = await supabase
+      .from("tasks")
+      .update({ status: "snoozed" })
+      .eq("id", id);
+
+    if (error) {
+      console.error("Error snoozing task:", error);
+      return;
+    }
+
+    set((state) => ({
+      tasks: state.tasks.map((t) =>
+        t.id === id ? { ...t, status: "snoozed" } : t
+      ),
+    }));
+  },
+
+  editTask: async (id, updates) => {
+    const { error } = await supabase
+      .from("tasks")
+      .update(toDB(updates))
+      .eq("id", id);
+
+    if (error) {
+      console.error("Error editing task:", error);
+      return;
+    }
+
+    set((state) => ({
+      tasks: state.tasks.map((t) => (t.id === id ? { ...t, ...updates } : t)),
+    }));
+  },
+
+  deleteTask: async (id) => {
+    const { error } = await supabase.from("tasks").delete().eq("id", id);
+    if (error) {
+      console.error("Error deleting task:", error);
+      return;
+    }
+    set((state) => ({ tasks: state.tasks.filter((t) => t.id !== id) }));
+  },
+}));

@@ -18,7 +18,7 @@ export const RegisterForm: React.FC = () => {
   const [employeeData, setEmployeeData] = useState<any>(null);
   
   const navigate = useNavigate();
-  const register = useAuthStore(state => state.register);
+  const setUser = useAuthStore((state) => state.setUser);
 
   const roleOptions = [
     'Software Engineer I',
@@ -69,12 +69,41 @@ export const RegisterForm: React.FC = () => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!isPasswordValid) return;
-    
+
     setLoading(true);
     setError('');
 
     try {
-      await register(formData);
+      const response = await fetch('http://localhost:3001/api/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(formData),
+      });
+
+      const data = await response.json();
+
+      if (!data.success) {
+        setError(data.error || 'Registration failed');
+        return;
+      }
+
+      const u = data.user;
+      setUser({
+        id: u.id,
+        email: u.email,
+        firstName: u.first_name,
+        lastName: u.last_name,
+        employeeId: u.employee_id,
+        department: u.department,
+        role: u.role,
+        managerName: u.manager_name,
+        startDate: u.start_date,
+        level: u.level,
+        currentXp: u.current_xp,
+        streakDays: u.streak_days,
+        introCompleted: u.intro_completed,
+      });
+
       navigate('/onboarding/intro');
     } catch (err) {
       setError('Registration failed. Please try again.');

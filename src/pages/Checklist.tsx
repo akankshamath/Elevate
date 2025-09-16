@@ -1,20 +1,33 @@
 
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { CheckSquare, Clock, Calendar, Star, Search } from "lucide-react";
 import { useGameStore } from "../stores/gameStore";
 import { useAuthStore } from "../stores/authStore";
 import { useTaskStore } from "../stores/taskStore";
 
 export const Checklist: React.FC = () => {
-  const { tasks, completeTask, snoozeTask, addTask, editTask, deleteTask } =
-    useTaskStore();
-  const [filter, setFilter] = useState<"all" | "todo" | "done" | "snoozed">(
-    "all"
-  );
+  const {
+    tasks,
+    completeTask,
+    snoozeTask,
+    addTask,
+    editTask,
+    deleteTask,
+    fetchTasks, 
+  } = useTaskStore();
+
+  const [filter, setFilter] = useState<"all" | "todo" | "done" | "snoozed">("all");
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
   const [searchTerm, setSearchTerm] = useState("");
+
   const triggerXpGain = useGameStore((state) => state.triggerXpGain);
   const { user, updateUser } = useAuthStore();
+
+  useEffect(() => {
+    if (user?.id) {
+      fetchTasks(user.id);
+    }
+  }, [user?.id, fetchTasks]);
 
   const handleCompleteTask = (taskId: string, points: number) => {
     completeTask(taskId);
@@ -91,7 +104,6 @@ export const Checklist: React.FC = () => {
 
   return (
     <div className="p-6 max-w-7xl mx-auto">
-      {/* Header */}
       <div className="mb-8">
         <h1 className="text-3xl font-bold text-[#0B2447] mb-2">Your Checklist</h1>
         <p className="text-[#4A5568]">
@@ -99,7 +111,6 @@ export const Checklist: React.FC = () => {
         </p>
       </div>
 
-      {/* Stats */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
         <div className="bg-white rounded-2xl shadow p-6">
           <div className="text-2xl font-bold text-[#0B2447]">{stats.total}</div>
@@ -276,11 +287,11 @@ export const Checklist: React.FC = () => {
         })}
       </div>
 
-      {/* Quick add */}
       <button
         onClick={() =>
+          user &&
           addTask({
-            id: String(Date.now()),
+            user_id: user.id,
             title: "New Task",
             description: "Created from Checklist",
             category: "General",

@@ -1,5 +1,4 @@
-
-import React from "react";
+import React, { useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   CheckSquare,
@@ -10,6 +9,7 @@ import {
   ChevronRight,
   Trophy,
   Users,
+  Check,
 } from "lucide-react";
 import { ProgressRing } from "../components/ui/ProgressRing";
 import { XpBadge } from "../components/ui/XpBadge";
@@ -37,25 +37,46 @@ const mockAnnouncements = [
 
 export const Dashboard: React.FC = () => {
   const navigate = useNavigate();
-  const { user, updateUser } = useAuthStore();
   const triggerXpGain = useGameStore((state) => state.triggerXpGain);
 
-  // Zustand stores
-  const { tasks, completeTask } = useTaskStore();
+  const { tasks, completeTask, editTask, fetchTasks } = useTaskStore();
+  const { user, updateUser   } = useAuthStore();
+
+useEffect(() => {
+  if (user?.id) {
+    fetchTasks(user.id);
+  }
+}, [user?.id]);
   const { modules } = useModuleStore();
 
   if (!user) return null;
 
-  // Calculate XP progress
-  const nextLevelXp = (user.level + 1) * 150;
-  const progressToNextLevel = (user.currentXp / nextLevelXp) * 100;
+  
+  const currentLevelXp = (user.level - 1) * 150; 
+  const xpInCurrentLevel = user.currentXp - currentLevelXp;
+  const xpNeededForNextLevel = 150;
+  const progressToNextLevel = Math.min(100, Math.max(0, (xpInCurrentLevel / xpNeededForNextLevel) * 100));
 
-  const handleCompleteTask = (taskId: string, points: number) => {
-    completeTask(taskId);
+  const handleTaskToggle = (taskId: string, points: number, currentStatus: string) => {
+    const task = tasks.find(t => t.id === taskId);
+    if (!task || !user) return;
 
-    if (user) {
+    if (currentStatus === "done") {
+      editTask(taskId, { status: "todo", completedAt: undefined });
+      
+      const newXp = Math.max(0, user.currentXp - points);
+      const newLevel = Math.max(1, Math.floor(newXp / 150) + 1);
+      
+      updateUser({
+        currentXp: newXp,
+        level: newLevel,
+      });
+    } else {
+      completeTask(taskId);
+      
       const newXp = user.currentXp + points;
       const newLevel = Math.floor(newXp / 150) + 1;
+      
       updateUser({
         currentXp: newXp,
         level: Math.max(newLevel, user.level),
@@ -129,7 +150,7 @@ export const Dashboard: React.FC = () => {
                 </ProgressRing>
                 <p className="text-sm text-[#4A5568]">
                   {user.currentXp.toLocaleString()} /{" "}
-                  {nextLevelXp.toLocaleString()} XP
+                  {xpNeededForNextLevel.toLocaleString()} XP
                 </p>
               </div>
 
@@ -199,19 +220,28 @@ export const Dashboard: React.FC = () => {
           <div className="space-y-4">
             {tasks.slice(0, 3).map((task) => {
               const dueDateInfo = getDueDateStatus(task.dueDate);
+              const isCompleted = task.status === "done";
+              
               return (
                 <div
                   key={task.id}
                   className="flex items-center gap-4 p-4 bg-[#F5F7FA] rounded-xl"
                 >
                   <button
-                    onClick={() => handleCompleteTask(task.id, task.points)}
-                    className="w-5 h-5 border-2 border-[#D6D9E0] rounded hover:border-[#0A6ED1] transition-colors"
-                  />
+                    onClick={() => handleTaskToggle(task.id, task.points, task.status)}
+                    className={`w-6 h-6 border-2 rounded-lg flex items-center justify-center transition-all duration-200 ${
+                      isCompleted
+                        ? "bg-[#2BA84A] border-[#2BA84A] text-white"
+                        : "border-[#D6D9E0] hover:border-[#0A6ED1]"
+                    }`}
+                  >
+                    {isCompleted && <Check className="w-4 h-4" />}
+                  </button>
+                  
                   <div className="flex-1">
                     <h4
-                      className={`font-medium ${
-                        task.status === "done"
+                      className={`font-medium transition-colors ${
+                        isCompleted
                           ? "text-[#4A5568] line-through"
                           : "text-[#0B2447]"
                       }`}
@@ -219,13 +249,20 @@ export const Dashboard: React.FC = () => {
                       {task.title}
                     </h4>
                     <div className="flex items-center gap-2 mt-1">
-                      <span
-                        className={`px-2 py-0.5 rounded-full text-xs font-medium ${dueDateInfo.className}`}
-                      >
-                        {dueDateInfo.text}
-                      </span>
-                      <span className="text-xs text-[#4A5568]">
-                        +{task.points} XP
+                      {!isCompleted && (
+                        <span
+                          className={`px-2 py-0.5 rounded-full text-xs font-medium ${dueDateInfo.className}`}
+                        >
+                          {dueDateInfo.text}
+                        </span>
+                      )}
+                      {isCompleted && (
+                        <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-green-50 text-green-700">
+                          Completed {task.completedAt ? new Date(task.completedAt).toLocaleDateString() : 'today'}
+                        </span>
+                      )}
+                      <span className={`text-xs ${isCompleted ? 'text-green-600' : 'text-[#4A5568]'}`}>
+                        {isCompleted ? '+' : ''}+{task.points} XP
                       </span>
                     </div>
                   </div>

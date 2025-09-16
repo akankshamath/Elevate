@@ -1,10 +1,10 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Send, Bot, User } from 'lucide-react';
+import { Send, Bot, User, RefreshCw } from 'lucide-react';
 import { useAuthStore } from '../../stores/authStore';
 
 interface ChatMessage {
   id: string;
-  type: 'user' | 'bot';
+  type: 'user' | 'bot' | 'system';
   content: string;
   timestamp: Date;
 }
@@ -14,12 +14,13 @@ export const ChatBot: React.FC = () => {
     {
       id: '1',
       type: 'bot',
-      content: "Hi! I'm your AI Career Coach powered by OpenAI. I can help you with your learning journey, company policies, career development, and provide personalized recommendations. What would you like to know?",
+      content: "Hi! I'm your AI Career Coach powered by OpenAI. I can help you with:\n\n📋 **Task Management** - Check your learning checklist and mark items complete\n🎯 **Career Guidance** - Get personalized career development advice\n📚 **Learning Paths** - Discover what to learn next based on your role\n🏢 **Company Policies** - Answer questions about company guidelines\n\nTry asking me: \"What's on my checklist?\" or \"What should I learn next?\"",
       timestamp: new Date()
     }
   ]);
   const [inputValue, setInputValue] = useState('');
   const [isTyping, setIsTyping] = useState(false);
+  const [isConnected, setIsConnected] = useState(true);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const user = useAuthStore(state => state.user);
 
@@ -31,64 +32,83 @@ export const ChatBot: React.FC = () => {
     scrollToBottom();
   }, [messages]);
 
-  const callOpenAI = async (userMessage: string): Promise<string> => {
+  // Test server connection on mount
+  useEffect(() => {
+    const testConnection = async () => {
+      try {
+        const response = await fetch("http://localhost:3001/health");
+        setIsConnected(response.ok);
+      } catch (error) {
+        console.error("Server connection failed:", error);
+        setIsConnected(false);
+      }
+    };
+
+    testConnection();
+  }, []);
+
+  const callChatAPI = async (userMessage: string): Promise<string> => {
+    if (!user?.id) {
+      return "⚠️ I can't find your user ID. Please log in again to use the chat features.";
+    }
+
+    if (!isConnected) {
+      return "I'm having trouble connecting to the server. Please check that the backend is running on port 3001.";
+    }
+
     try {
-      const userContext = user ? `
-        User Profile:
-        - Name: ${user.firstName} ${user.lastName}
-        - Role: ${user.role}
-        - Department: ${user.department}
-        - Level: ${user.level}
-        - Current XP: ${user.currentXp}
-        - Learning Streak: ${user.streakDays} days
-        - Manager: ${user.managerName}
-      ` : '';
+      const conversationHistory = messages
+        .filter(msg => msg.type !== 'system')
+        .map(msg => ({
+          role: msg.type === 'user' ? 'user' : 'assistant',
+          content: typeof msg.content === 'string' ? msg.content : String(msg.content)
+        }));
 
-      const systemPrompt = `You are an AI Career Coach for Elevate, a corporate learning and development platform. You help employees with:
-
-1. Learning recommendations and career development
-2. Company policies and procedures
-3. Professional growth advice
-4. Motivation and engagement
-
-Company Context:
-- Elevate is a gamified learning platform with XP, levels, and streaks
-- Employees complete modules to gain XP and advance levels
-- Focus areas: leadership development, technical skills, company culture
-- Available modules include: Company Values & Culture, Information Security, Communication Skills, Leadership Fundamentals
-
-${userContext}
-
-Keep responses:
-- Professional but friendly
-- Concise (2-3 sentences max)
-- Actionable and specific
-- Personalized when user context is available
-
-If asked about topics outside your scope, politely redirect to relevant resources or HR.`;
-
-      const response = await fetch('http://localhost:3001/api/chat', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
+      const response = await fetch("http://localhost:3001/api/chat", {
+        method: "POST",
+        headers: { 
+          "Content-Type": "application/json",
+          "Accept": "application/json"
         },
         body: JSON.stringify({
           messages: [
-            { role: 'system', content: systemPrompt },
-            { role: 'user', content: userMessage }
-          ]
-        })
+            ...conversationHistory,
+            { role: "user", content: userMessage }
+          ],
+          userId: user.id,
+        }),
       });
 
       if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
+        const errorText = await response.text();
+        throw new Error(`HTTP ${response.status}: ${errorText}`);
       }
 
       const data = await response.json();
-      return data.response || "I'm sorry, I couldn't generate a proper response. Please try again.";
-    } catch (error) {
-      console.error('Error calling OpenAI:', error);
-      return "I'm sorry, I'm having trouble connecting right now. Please try again in a moment, or contact IT support if the issue persists.";
+      console.log("Chat API response:", data);
+
+      // Ensure we return a string
+      let responseText = "";
+      if (data.response) {
+        responseText = typeof data.response === 'string' ? data.response : JSON.stringify(data.response, null, 2);
+      } else if (data.message) {
+        responseText = typeof data.message === 'string' ? data.message : JSON.stringify(data.message, null, 2);
+      } else {
+        responseText = "I received a response but couldn't format it properly. Please try again.";
+      }
+
+      return responseText;
+
+    } catch (err) {
+      console.error("Chat API error:", err);
+      setIsConnected(false);
+      
+      if (err instanceof TypeError && err.message.includes('fetch')) {
+        return "🔌 I can't reach the server. Please make sure the backend is running on http://localhost:3001";
+      }
+      
+      const errorMessage = err instanceof Error ? err.message : 'Unknown error occurred';
+      return `💥 Technical issue: ${errorMessage}. Please try again or contact support.`;
     }
   };
 
@@ -108,7 +128,7 @@ If asked about topics outside your scope, politely redirect to relevant resource
     setIsTyping(true);
 
     try {
-      const aiResponse = await callOpenAI(currentInput);
+      const aiResponse = await callChatAPI(currentInput);
       
       const botResponse: ChatMessage = {
         id: (Date.now() + 1).toString(),
@@ -118,12 +138,13 @@ If asked about topics outside your scope, politely redirect to relevant resource
       };
 
       setMessages(prev => [...prev, botResponse]);
+      setIsConnected(true); // Reset connection status on successful response
     } catch (error) {
       console.error('Chat error:', error);
       const errorResponse: ChatMessage = {
         id: (Date.now() + 1).toString(),
         type: 'bot',
-        content: "I apologize, but I'm experiencing technical difficulties. Please try again or contact support if the problem continues.",
+        content: "🚫 I apologize, but I'm experiencing technical difficulties. Please try again or contact support if the problem continues.",
         timestamp: new Date()
       };
       setMessages(prev => [...prev, errorResponse]);
@@ -143,14 +164,82 @@ If asked about topics outside your scope, politely redirect to relevant resource
     setInputValue(suggestion);
   };
 
+  const retryConnection = async () => {
+    try {
+      const response = await fetch("http://localhost:3001/health");
+      setIsConnected(response.ok);
+      if (response.ok) {
+        setMessages(prev => [...prev, {
+          id: Date.now().toString(),
+          type: 'system',
+          content: '✅ Connection restored! You can now continue chatting.',
+          timestamp: new Date()
+        }]);
+      }
+    } catch (error) {
+      console.error("Retry connection failed:", error);
+      setIsConnected(false);
+    }
+  };
+
+  const quickActions = [
+    "What's on my checklist today?",
+    "What should I learn next?",
+    "How can I improve my skills?",
+    "Tell me about company policies",
+    "Show my learning progress"
+  ];
+
+  const formatMessage = (content: any) => {
+    // Ensure content is a string and handle edge cases
+    if (content === null || content === undefined) {
+      return 'No content available';
+    }
+    
+    // Convert to string if it's not already
+    const stringContent = typeof content === 'string' ? content : JSON.stringify(content, null, 2);
+    
+    try {
+      // Simple formatting for better readability
+      return stringContent
+        .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>') // Bold text
+        .replace(/\n/g, '<br />'); // Line breaks
+    } catch (error) {
+      console.error('Error formatting message:', error, 'Content:', content);
+      return String(stringContent); // Fallback to plain string
+    }
+  };
+
   return (
     <div className="flex flex-col h-full max-h-screen">
       {/* Header */}
       <div className="flex-shrink-0 p-4 border-b border-[#D6D9E0] bg-white">
-        <h2 className="text-lg font-semibold text-[#0B2447]">AI Career Coach</h2>
+        <div className="flex items-center justify-between">
+          <h2 className="text-lg font-semibold text-[#0B2447]">AI Career Coach</h2>
+          <div className="flex items-center gap-2">
+            <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-green-500' : 'bg-red-500'}`}></div>
+            <span className={`text-xs ${isConnected ? 'text-green-600' : 'text-red-600'}`}>
+              {isConnected ? 'Connected' : 'Disconnected'}
+            </span>
+            {!isConnected && (
+              <button
+                onClick={retryConnection}
+                className="text-blue-600 hover:text-blue-800 p-1"
+                title="Retry connection"
+              >
+                <RefreshCw className="w-3 h-3" />
+              </button>
+            )}
+          </div>
+        </div>
+        {user && (
+          <p className="text-sm text-gray-600 mt-1">
+            Welcome, {user.firstName}! Level {user.level} • {user.currentXp} XP
+          </p>
+        )}
       </div>
 
-      {/* Messages Container - This is the key fix */}
+      {/* Messages Container */}
       <div className="flex-1 overflow-y-auto p-4 space-y-4 min-h-0">
         {messages.map((message) => (
           <div
@@ -162,24 +251,37 @@ If asked about topics outside your scope, politely redirect to relevant resource
             <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${
               message.type === 'user' 
                 ? 'bg-[#0A6ED1]' 
+                : message.type === 'system'
+                ? 'bg-yellow-100'
                 : 'bg-[#E8EAF6]'
             }`}>
               {message.type === 'user' ? (
                 <User className="w-4 h-4 text-white" />
               ) : (
-                <Bot className="w-4 h-4 text-[#0A6ED1]" />
+                <Bot className={`w-4 h-4 ${message.type === 'system' ? 'text-yellow-600' : 'text-[#0A6ED1]'}`} />
               )}
             </div>
             <div
               className={`max-w-[80%] p-3 rounded-2xl ${
                 message.type === 'user'
                   ? 'bg-[#0A6ED1] text-white'
+                  : message.type === 'system'
+                  ? 'bg-yellow-50 text-yellow-800 border border-yellow-200'
                   : 'bg-[#F5F7FA] text-[#0B2447]'
               }`}
             >
-              <p className="text-sm leading-relaxed whitespace-pre-wrap">{message.content}</p>
+              <div 
+                className="text-sm leading-relaxed whitespace-pre-wrap"
+                dangerouslySetInnerHTML={{ 
+                  __html: formatMessage(message.content) 
+                }}
+              />
               <p className={`text-xs mt-1 ${
-                message.type === 'user' ? 'text-blue-100' : 'text-[#4A5568]'
+                message.type === 'user' 
+                  ? 'text-blue-100' 
+                  : message.type === 'system'
+                  ? 'text-yellow-600'
+                  : 'text-[#4A5568]'
               }`}>
                 {message.timestamp.toLocaleTimeString([], { 
                   hour: '2-digit', 
@@ -214,37 +316,43 @@ If asked about topics outside your scope, politely redirect to relevant resource
             value={inputValue}
             onChange={(e) => setInputValue(e.target.value)}
             onKeyPress={handleKeyPress}
-            placeholder="Ask me anything about your career, learning, or company policies..."
-            className="flex-1 px-2 py-2 border border-[#D6D9E0] rounded-xl focus:outline-none focus:ring-2 focus:ring-[#0A6ED1] focus:border-transparent resize-none placeholder:text-xs placeholder:text-gray-500"
+            placeholder="Ask me about your tasks, career advice, or company policies..."
+            className="flex-1 px-3 py-2 border border-[#D6D9E0] rounded-xl focus:outline-none focus:ring-2 focus:ring-[#0A6ED1] focus:border-transparent resize-none placeholder:text-sm placeholder:text-gray-500"
             rows={1}
             style={{ minHeight: '40px', maxHeight: '120px' }}
+            disabled={!isConnected}
           />
           <button
             onClick={handleSendMessage}
-            disabled={!inputValue.trim() || isTyping}
+            disabled={!inputValue.trim() || isTyping || !isConnected}
             className="bg-[#0A6ED1] hover:bg-[#0859ab] text-white p-2 rounded-xl disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
             <Send className="w-4 h-4" />
           </button>
         </div>
         
-        {/* Quick suggestions */}
+        {/* Quick Actions */}
         <div className="flex flex-wrap gap-2 mt-3">
-          {[
-            "What should I learn next based on my role?",
-            "How can I improve my leadership skills?",
-            "What's our remote work policy?",
-            "Give me career development tips"
-          ].map((suggestion) => (
+          {quickActions.map((action) => (
             <button
-              key={suggestion}
-              onClick={() => handleSuggestionClick(suggestion)}
-              className="px-3 py-1 bg-[#E8EAF6] text-[#0A6ED1] rounded-full text-xs hover:bg-[#0A6ED1] hover:text-white transition-colors"
+              key={action}
+              onClick={() => handleSuggestionClick(action)}
+              disabled={!isConnected}
+              className="px-3 py-1 bg-[#E8EAF6] text-[#0A6ED1] rounded-full text-xs hover:bg-[#0A6ED1] hover:text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {suggestion}
+              {action}
             </button>
           ))}
         </div>
+        
+        {/* Connection Status Message */}
+        {!isConnected && (
+          <div className="mt-3 p-2 bg-red-50 border border-red-200 rounded-lg">
+            <p className="text-xs text-red-600">
+              ⚠️ Not connected to server. Make sure the backend is running on http://localhost:3001
+            </p>
+          </div>
+        )}
       </div>
     </div>
   );
