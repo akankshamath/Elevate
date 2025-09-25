@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Send, Bot, User, RefreshCw } from 'lucide-react';
 import { useAuthStore } from '../../stores/authStore';
+import { useModuleStore } from '../../stores/moduleStore';
 
 interface ChatMessage {
   id: string;
@@ -23,6 +24,19 @@ export const ChatBot: React.FC = () => {
   const [isConnected, setIsConnected] = useState(true);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const user = useAuthStore(state => state.user);
+
+  const modules = useModuleStore(state => state.modules);
+
+  const recommendFromModules = () => {
+    const role = user?.role;
+    const relevant = modules.filter(m => role==='Business Analyst' ? m.id.startsWith('ba-') : m.id.startsWith('ds-'));
+    const incomplete = relevant.filter(m => (m.progress ?? 0) < 100).slice(0,3);
+    if(!role) return "No role set.";
+    if(incomplete.length===0) return `All modules complete for ${role}!`;
+    return `Next steps for ${role}:
+${incomplete.map(m => `• ${m.title} (${m.category})`).join('\n')}`;
+  };
+
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -147,7 +161,11 @@ export const ChatBot: React.FC = () => {
         content: "🚫 I apologize, but I'm experiencing technical difficulties. Please try again or contact support if the problem continues.",
         timestamp: new Date()
       };
-      setMessages(prev => [...prev, errorResponse]);
+      setMessages(prev => [
+        ...prev,
+        errorResponse,
+        { id: (Date.now() + 2).toString(), type: 'bot', content: recommendFromModules(), timestamp: new Date() }
+      ]);
     } finally {
       setIsTyping(false);
     }

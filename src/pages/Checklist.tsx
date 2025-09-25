@@ -1,6 +1,6 @@
 
 import React, { useEffect, useState } from "react";
-import { CheckSquare, Clock, Calendar, Star, Search } from "lucide-react";
+import { CheckSquare, Clock, Calendar, Star, Search, Plus, X } from "lucide-react";
 import { useGameStore } from "../stores/gameStore";
 import { useAuthStore } from "../stores/authStore";
 import { useTaskStore } from "../stores/taskStore";
@@ -19,30 +19,110 @@ export const Checklist: React.FC = () => {
   const [filter, setFilter] = useState<"all" | "todo" | "done" | "snoozed">("all");
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
   const [searchTerm, setSearchTerm] = useState("");
+  const [showAddForm, setShowAddForm] = useState(false);
+  const [newTask, setNewTask] = useState({
+    title: '',
+    category: 'Personal',
+    dueDate: '',
+    points: 10
+  });
 
   const triggerXpGain = useGameStore((state) => state.triggerXpGain);
   const { user, updateUser } = useAuthStore();
 
+  const ensureRoleTasks = async () => {
+    if (!user?.id || !user?.role) return;
+
+    try {
+      const response = await fetch('http://localhost:3001/api/tasks/update-role-tasks', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userId: user.id,
+          role: user.role
+        })
+      });
+
+      if (response.ok) {
+        fetchTasks(user.id); // Refresh tasks
+      }
+    } catch (error) {
+      console.error('Failed to ensure role tasks:', error);
+    }
+  };
+
   useEffect(() => {
     if (user?.id) {
       fetchTasks(user.id);
+      // Automatically ensure role-specific tasks exist
+      ensureRoleTasks();
     }
   }, [user?.id, fetchTasks]);
 
-  const handleCompleteTask = (taskId: string, points: number) => {
-    completeTask(taskId);
+  const handleToggleTask = async (taskId: string, currentStatus: string) => {
+    if (!user?.id) return;
 
-    if (user) {
-      const newXp = user.currentXp + points;
-      const newLevel = Math.floor(newXp / 150) + 1;
-      updateUser({
-        currentXp: newXp,
-        level: Math.max(newLevel, user.level),
+    try {
+      const response = await fetch('http://localhost:3001/api/tasks/toggle', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          taskId,
+          userId: user.id
+        })
       });
 
-      setTimeout(() => {
-        triggerXpGain(points);
-      }, 100);
+      if (response.ok) {
+        const data = await response.json();
+        
+        // Update user XP
+        if (user) {
+          const newXp = user.currentXp + data.points;
+          const newLevel = Math.floor(newXp / 150) + 1;
+          updateUser({
+            currentXp: newXp,
+            level: Math.max(newLevel, user.level),
+          });
+
+          if (data.points > 0) {
+            setTimeout(() => {
+              triggerXpGain(data.points);
+            }, 100);
+          }
+        }
+
+        // Refresh tasks
+        fetchTasks(user.id);
+      }
+    } catch (error) {
+      console.error('Failed to toggle task:', error);
+    }
+  };
+
+  const handleCreateTask = async () => {
+    if (!newTask.title.trim() || !user?.id) return;
+
+    try {
+      const response = await fetch('http://localhost:3001/api/tasks/create', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userId: user.id,
+          title: newTask.title,
+          category: newTask.category,
+          dueDate: newTask.dueDate || new Date(Date.now() + 7 * 86400000).toISOString(),
+          points: newTask.points,
+          isMandatory: false
+        })
+      });
+
+      if (response.ok) {
+        setNewTask({ title: '', category: 'Personal', dueDate: '', points: 10 });
+        setShowAddForm(false);
+        fetchTasks(user.id); // Refresh tasks
+      }
+    } catch (error) {
+      console.error('Failed to create task:', error);
     }
   };
 
@@ -107,7 +187,7 @@ export const Checklist: React.FC = () => {
       <div className="mb-8">
         <h1 className="text-3xl font-bold text-[#0B2447] mb-2">Your Checklist</h1>
         <p className="text-[#4A5568]">
-          Track your onboarding progress and complete required tasks
+          Track your onboarding progress and complete required tasks. You can add custom tasks using the "Add New Task" button below.
         </p>
       </div>
 
@@ -131,6 +211,106 @@ export const Checklist: React.FC = () => {
           <div className="text-sm text-[#4A5568]">Overdue</div>
         </div>
       </div>
+
+      {/* Add Task Button */}
+      <div className="mb-6">
+        <button
+          onClick={() => setShowAddForm(!showAddForm)}
+          className="bg-[#0A6ED1] text-white px-6 py-3 rounded-lg hover:bg-[#0A5BC4] transition-colors flex items-center gap-2"
+        >
+          <Plus className="w-5 h-5" />
+          Add New Task
+        </button>
+      </div>
+
+      {/* Add Task Form */}
+      {showAddForm && (
+        <div className="bg-white rounded-2xl shadow p-6 mb-8">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-lg font-semibold text-[#0B2447]">Create New Task</h3>
+            <button
+              onClick={() => setShowAddForm(false)}
+              className="text-[#4A5568] hover:text-[#0B2447]"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+          
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+            <div>
+              <label className="block text-sm font-medium text-[#0B2447] mb-2">
+                Task Title *
+              </label>
+              <input
+                type="text"
+                value={newTask.title}
+                onChange={(e) => setNewTask({ ...newTask, title: e.target.value })}
+                placeholder="Enter task title..."
+                className="w-full border border-[#E2E8F0] rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[#0A6ED1]"
+              />
+            </div>
+            
+            <div>
+              <label className="block text-sm font-medium text-[#0B2447] mb-2">
+                Category
+              </label>
+              <select
+                value={newTask.category}
+                onChange={(e) => setNewTask({ ...newTask, category: e.target.value })}
+                className="w-full border border-[#E2E8F0] rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[#0A6ED1]"
+              >
+                <option value="Personal">Personal</option>
+                <option value="Learning">Learning</option>
+                <option value="Technical">Technical</option>
+                <option value="HR">HR</option>
+                <option value="IT">IT</option>
+              </select>
+            </div>
+            
+            <div>
+              <label className="block text-sm font-medium text-[#0B2447] mb-2">
+                Due Date
+              </label>
+              <input
+                type="date"
+                value={newTask.dueDate}
+                onChange={(e) => setNewTask({ ...newTask, dueDate: e.target.value })}
+                className="w-full border border-[#E2E8F0] rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[#0A6ED1]"
+              />
+            </div>
+            
+            <div>
+              <label className="block text-sm font-medium text-[#0B2447] mb-2">
+                Points
+              </label>
+              <input
+                type="number"
+                value={newTask.points}
+                onChange={(e) => setNewTask({ ...newTask, points: parseInt(e.target.value) || 10 })}
+                min="1"
+                max="100"
+                className="w-full border border-[#E2E8F0] rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[#0A6ED1]"
+              />
+            </div>
+          </div>
+          
+          <div className="flex gap-3">
+            <button
+              onClick={handleCreateTask}
+              disabled={!newTask.title.trim()}
+              className="bg-[#0A6ED1] text-white px-6 py-2 rounded-lg hover:bg-[#0A5BC4] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              Create Task
+            </button>
+            <button
+              onClick={() => setShowAddForm(false)}
+              className="bg-[#E2E8F0] text-[#4A5568] px-6 py-2 rounded-lg hover:bg-[#CBD5E0] transition-colors"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Filters */}
       <div className="bg-white rounded-2xl shadow p-6 mb-6">
@@ -188,8 +368,7 @@ export const Checklist: React.FC = () => {
             >
               {/* Checkbox */}
               <button
-                onClick={() => handleCompleteTask(task.id, task.points)}
-                disabled={task.status === "done"}
+                onClick={() => handleToggleTask(task.id, task.status)}
                 className={`w-6 h-6 border-2 rounded-lg flex items-center justify-center transition-colors ${
                   task.status === "done"
                     ? "bg-[#2BA84A] border-[#2BA84A] text-white"
@@ -287,24 +466,6 @@ export const Checklist: React.FC = () => {
         })}
       </div>
 
-      <button
-        onClick={() =>
-          user &&
-          addTask({
-            user_id: user.id,
-            title: "New Task",
-            description: "Created from Checklist",
-            category: "General",
-            dueDate: new Date().toISOString(),
-            points: 10,
-            isMandatory: false,
-            status: "todo",
-          })
-        }
-        className="mt-6 text-xs text-[#0A6ED1] hover:underline"
-      >
-        + Add Task
-      </button>
 
       {filteredTasks.length === 0 && (
         <div className="text-center py-12">

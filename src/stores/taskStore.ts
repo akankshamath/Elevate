@@ -6,7 +6,7 @@ export interface Task {
   user_id: string;
   title: string;
   description: string;
-  category: "HR" | "IT" | "Compliance" | "General";
+  category: "HR" | "IT" | "Compliance" | "General" | "Personal" | "Learning" | "Technical";
   dueDate: string;           
   points: number;
   isMandatory: boolean;          
@@ -68,50 +68,69 @@ export const useTaskStore = create<TaskState>((set, get) => ({
   tasks: [],
 
   fetchTasks: async (userId) => {
-    const { data, error } = await supabase
-      .from("tasks")
-      .select("*")
-      .eq("user_id", userId)
-      .order("due_date", { ascending: true });
-
-    if (error) {
+    try {
+      const response = await fetch(`http://localhost:3001/api/tasks/${userId}`);
+      if (response.ok) {
+        const result = await response.json();
+        if (result.success && result.data.all_tasks) {
+          set({ tasks: result.data.all_tasks.map(fromDB) });
+        }
+      }
+    } catch (error) {
       console.error("Error fetching tasks:", error);
-      return;
     }
-    set({ tasks: (data as DbTask[]).map(fromDB) });
   },
 
   addTask: async (task) => {
-    const { data, error } = await supabase
-      .from("tasks")
-      .insert([toDB(task)])
-      .select("*");
+    try {
+      const response = await fetch('http://localhost:3001/api/tasks/create', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userId: task.user_id,
+          title: task.title,
+          category: task.category,
+          dueDate: task.dueDate,
+          points: task.points,
+          isMandatory: task.isMandatory
+        })
+      });
 
-    if (error) {
+      if (response.ok) {
+        const result = await response.json();
+        if (result.success && result.task) {
+          set((state) => ({ tasks: [...state.tasks, fromDB(result.task)] }));
+        }
+      }
+    } catch (error) {
       console.error("Error adding task:", error);
-      return;
     }
-    const inserted = (data as DbTask[])[0];
-    set((state) => ({ tasks: [...state.tasks, fromDB(inserted)] }));
   },
 
   completeTask: async (id) => {
-    const ts = new Date().toISOString();
-    const { error } = await supabase
-      .from("tasks")
-      .update({ status: "done", completed_at: ts })
-      .eq("id", id);
+    try {
+      const response = await fetch('http://localhost:3001/api/tasks/toggle', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          taskId: id,
+          userId: get().tasks.find(t => t.id === id)?.user_id
+        })
+      });
 
-    if (error) {
+      if (response.ok) {
+        const result = await response.json();
+        if (result.success) {
+          set((state) => ({
+            tasks: state.tasks.map((t) =>
+              t.id === id ? { ...t, status: t.status === "done" ? "todo" : "done" } : t
+            ),
+          }));
+        }
+      }
+    } catch (error) {
       console.error("Error completing task:", error);
-      return;
     }
-
-    set((state) => ({
-      tasks: state.tasks.map((t) =>
-        t.id === id ? { ...t, status: "done", completedAt: ts } : t
-      ),
-    }));
   },
 
   snoozeTask: async (id) => {

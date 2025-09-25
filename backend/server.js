@@ -1,15 +1,52 @@
 const express = require('express');
 const OpenAI = require('openai');
 const cors = require('cors');
+const fs = require('fs');
+const path = require('path');
+const dotenv = require('dotenv');
+const { defaultModules } = require('./modulesCatalog');
+
+// Load environment variables early (.env.local preferred, search backend and repo root)
+const candidateEnvPaths = [
+  path.resolve(__dirname, '.env.local'),
+  path.resolve(__dirname, '.env'),
+  path.resolve(__dirname, '..', '.env.local'),
+  path.resolve(__dirname, '..', '.env'),
+];
+
+let loadedEnvPath = null;
+for (const p of candidateEnvPaths) {
+  if (fs.existsSync(p)) {
+    dotenv.config({ path: p });
+    loadedEnvPath = p;
+    break;
+  }
+}
+
+if (!loadedEnvPath) {
+  // Fallback to default search if nothing matched
+  dotenv.config();
+}
+
+console.log(`Env loaded from: ${loadedEnvPath || 'default resolution (no explicit .env file found)'}`);
+
 const supabase = require('./supabase');
-require('dotenv').config();
 
 const app = express();
 const port = 3001;
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY
-});
+// Resolve OpenAI API key with alias support
+const resolvedOpenAIKey =
+  process.env.OPENAI_API_KEY ||
+  process.env.VITE_OPENAI_API_KEY ||
+  process.env.NEXT_PUBLIC_OPENAI_API_KEY;
+
+const openaiEnabled = Boolean(resolvedOpenAIKey);
+if (!openaiEnabled) {
+  console.warn('Warning: OPENAI_API_KEY not set. Chat endpoint will be disabled.');
+}
+
+const openai = openaiEnabled ? new OpenAI({ apiKey: resolvedOpenAIKey }) : null;
 
 app.use(cors());
 app.use(express.json());
@@ -23,6 +60,32 @@ const agentTools = [
       parameters: {
         type: "object",
         properties: {},
+        required: []
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_user_module_progress",
+      description: "Get the user's module progress and last opened timestamps",
+      parameters: {
+        type: "object",
+        properties: {},
+        required: []
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_recommended_modules",
+      description: "Return top recommended learning modules for the user based on role and incomplete progress",
+      parameters: {
+        type: "object",
+        properties: {
+          limit: { type: "number", description: "Max number of recommendations", default: 3 }
+        },
         required: []
       }
     }
@@ -715,6 +778,57 @@ const toolHandlers = {
   get_user_tasks: async (args, userId) => {
     return await TaskService.getUserTasks(userId);
   },
+  get_user_module_progress: async (args, userId) => {
+    try {
+      const { data, error } = await supabase
+        .from('user_modules')
+        .select('module_id, progress, last_opened_at')
+        .eq('user_id', userId);
+      if (error) throw error;
+      return { success: true, progress: data || [] };
+    } catch (e) {
+      return { success: true, progress: [] };
+    }
+  },
+  get_recommended_modules: async (args, userId) => {
+    try {
+      // Get user role
+      const profile = await TaskService.getUserProfile(userId);
+      const role = profile.success ? profile.profile.role : 'Data Scientist';
+      const isBA = role.includes('Business');
+
+      // Get catalog filtered by role
+      let { data: mods, error } = await supabase.from('modules').select('*');
+      if (error) throw error;
+      const catalog = (mods || []).map((m) => ({
+        id: m.id,
+        title: m.title,
+        category: m.category,
+        difficulty: m.difficulty,
+        xpReward: m.xp_reward,
+        role: m.role,
+      })).filter((m) => (isBA ? m.id.startsWith('ba-') : m.id.startsWith('ds-')));
+
+      // Get progress
+      const { data: prog } = await supabase
+        .from('user_modules')
+        .select('module_id, progress')
+        .eq('user_id', userId);
+      const done = new Set((prog || []).filter(p => (p.progress || 0) >= 100).map(p => p.module_id));
+
+      // Recommend incomplete, sort by difficulty then xp
+      const incomplete = catalog.filter(m => !done.has(m.id));
+      incomplete.sort((a, b) => (a.difficulty - b.difficulty) || (b.xpReward - a.xpReward));
+      const limit = Math.max(1, Math.min(5, (args && args.limit) || 3));
+      const top = incomplete.slice(0, limit);
+      return { success: true, recommendations: top };
+    } catch (e) {
+      // Fallback to built-in list
+      const isBA = false;
+      const catalog = defaultModules.filter((m) => (isBA ? m.id.startsWith('ba-') : m.id.startsWith('ds-')));
+      return { success: true, recommendations: catalog.slice(0, (args && args.limit) || 3) };
+    }
+  },
   
   complete_task: async (args, userId) => {
     return await TaskService.completeTask(args.taskId, userId);
@@ -746,6 +860,11 @@ const toolHandlers = {
 
 
 app.post("/api/chat", async (req, res) => {
+  if (!openaiEnabled || !openai) {
+    return res.status(503).json({
+      response: "Chat is temporarily unavailable because OPENAI_API_KEY is not configured on the server.",
+    });
+  }
   try {
     const { messages, userId } = req.body;
 
@@ -851,6 +970,280 @@ app.post('/api/tasks/complete', async (req, res) => {
   }
 });
 
+app.post('/api/tasks/toggle', async (req, res) => {
+  try {
+    const { taskId, userId } = req.body;
+    
+    if (!taskId || !userId) {
+      return res.status(400).json({ success: false, error: 'taskId and userId are required' });
+    }
+
+    // Get current task status
+    const { data: task, error: fetchError } = await supabase
+      .from('tasks')
+      .select('status, points')
+      .eq('id', taskId)
+      .eq('user_id', userId)
+      .single();
+
+    if (fetchError || !task) {
+      return res.status(404).json({ success: false, error: 'Task not found' });
+    }
+
+    // Toggle status
+    const newStatus = task.status === 'done' ? 'todo' : 'done';
+    
+    const { data: updatedTask, error: updateError } = await supabase
+      .from('tasks')
+      .update({ status: newStatus })
+      .eq('id', taskId)
+      .eq('user_id', userId)
+      .select()
+      .single();
+
+    if (updateError) {
+      return res.status(400).json({ success: false, error: updateError.message });
+    }
+
+    res.json({ success: true, task: updatedTask, points: newStatus === 'done' ? task.points : -task.points });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+app.post('/api/tasks/create', async (req, res) => {
+  try {
+    const { userId, title, category, dueDate, points, isMandatory } = req.body;
+    
+    if (!userId || !title) {
+      return res.status(400).json({ success: false, error: 'userId and title are required' });
+    }
+
+    const { data: task, error } = await supabase
+      .from('tasks')
+      .insert([{
+        user_id: userId,
+        title: title,
+        category: category || 'Personal',
+        due_date: dueDate || new Date(Date.now() + 7 * 86400000).toISOString(),
+        points: points || 10,
+        is_mandatory: isMandatory || false,
+        status: 'todo'
+      }])
+      .select()
+      .single();
+
+    if (error) {
+      return res.status(400).json({ success: false, error: error.message });
+    }
+
+    res.json({ success: true, task });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+app.delete('/api/tasks/cleanup/:userId', async (req, res) => {
+  try {
+    const { userId } = req.params;
+    
+    if (!userId) {
+      return res.status(400).json({ success: false, error: 'userId is required' });
+    }
+
+    // Delete all tasks for the user
+    const { error } = await supabase
+      .from('tasks')
+      .delete()
+      .eq('user_id', userId);
+
+    if (error) {
+      return res.status(400).json({ success: false, error: error.message });
+    }
+
+    res.json({ success: true, message: 'All tasks cleaned up' });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+app.get('/api/admin/all-users', async (req, res) => {
+  try {
+    // Get all users with their task counts
+    const { data: users, error: usersError } = await supabase
+      .from('users')
+      .select('id, email, role');
+
+    if (usersError) {
+      return res.status(400).json({ success: false, error: usersError.message });
+    }
+
+    // Get task counts for each user
+    const usersWithTasks = await Promise.all(
+      users.map(async (user) => {
+        const { data: tasks, error: tasksError } = await supabase
+          .from('tasks')
+          .select('id, title, category')
+          .eq('user_id', user.id);
+
+        if (tasksError) {
+          return { ...user, taskCount: 0, tasks: [] };
+        }
+
+        return {
+          ...user,
+          taskCount: tasks.length,
+          tasks: tasks
+        };
+      })
+    );
+
+    res.json({ success: true, users: usersWithTasks });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+app.post('/api/tasks/update-role-tasks', async (req, res) => {
+  try {
+    const { userId, role } = req.body;
+    
+    if (!userId || !role) {
+      return res.status(400).json({ success: false, error: 'userId and role are required' });
+    }
+
+    // Check if user already has role-specific tasks
+    const { data: existingTasks } = await supabase
+      .from('tasks')
+      .select('id, category')
+      .eq('user_id', userId)
+      .in('category', ['Learning', 'Technical']);
+
+    // If user already has 5 or more role-specific tasks, don't create more
+    if (existingTasks && existingTasks.length >= 5) {
+      return res.json({ success: true, tasks: [], added: 0, message: 'User already has sufficient role tasks' });
+    }
+
+    // Clean up existing role-specific tasks only if user has some but not enough
+    if (existingTasks && existingTasks.length > 0) {
+      await supabase
+        .from('tasks')
+        .delete()
+        .eq('user_id', userId)
+        .in('category', ['Learning', 'Technical']);
+    }
+
+    // Create exactly 5 role-specific tasks
+    const isDataScientist = role === 'Data Scientist';
+    const roleTasks = isDataScientist ? [
+      {
+        user_id: userId,
+        title: 'Complete Python Basics Module',
+        category: 'Learning',
+        due_date: new Date(Date.now() + 7 * 86400000).toISOString(),
+        points: 120,
+        is_mandatory: true,
+        status: 'todo'
+      },
+      {
+        user_id: userId,
+        title: 'Complete Python for Data (Pandas/Numpy) Module',
+        category: 'Learning',
+        due_date: new Date(Date.now() + 14 * 86400000).toISOString(),
+        points: 160,
+        is_mandatory: true,
+        status: 'todo'
+      },
+      {
+        user_id: userId,
+        title: 'Complete SQL for Analytics Module',
+        category: 'Learning',
+        due_date: new Date(Date.now() + 10 * 86400000).toISOString(),
+        points: 150,
+        is_mandatory: true,
+        status: 'todo'
+      },
+      {
+        user_id: userId,
+        title: 'Set Up Python Development Environment',
+        category: 'Technical',
+        due_date: new Date(Date.now() + 3 * 86400000).toISOString(),
+        points: 30,
+        is_mandatory: true,
+        status: 'todo'
+      },
+      {
+        user_id: userId,
+        title: 'Complete ML Basics (Scikit-learn) Module',
+        category: 'Learning',
+        due_date: new Date(Date.now() + 21 * 86400000).toISOString(),
+        points: 200,
+        is_mandatory: false,
+        status: 'todo'
+      }
+    ] : [
+      {
+        user_id: userId,
+        title: 'Complete Excel for Analysis Module',
+        category: 'Learning',
+        due_date: new Date(Date.now() + 5 * 86400000).toISOString(),
+        points: 100,
+        is_mandatory: true,
+        status: 'todo'
+      },
+      {
+        user_id: userId,
+        title: 'Complete SQL Basics (BA) Module',
+        category: 'Learning',
+        due_date: new Date(Date.now() + 7 * 86400000).toISOString(),
+        points: 120,
+        is_mandatory: true,
+        status: 'todo'
+      },
+      {
+        user_id: userId,
+        title: 'Complete BI Dashboards (Power BI/Looker) Module',
+        category: 'Learning',
+        due_date: new Date(Date.now() + 10 * 86400000).toISOString(),
+        points: 150,
+        is_mandatory: true,
+        status: 'todo'
+      },
+      {
+        user_id: userId,
+        title: 'Set Up Excel with Power Query',
+        category: 'Technical',
+        due_date: new Date(Date.now() + 2 * 86400000).toISOString(),
+        points: 25,
+        is_mandatory: true,
+        status: 'todo'
+      },
+      {
+        user_id: userId,
+        title: 'Complete Business Stats Fundamentals Module',
+        category: 'Learning',
+        due_date: new Date(Date.now() + 8 * 86400000).toISOString(),
+        points: 130,
+        is_mandatory: false,
+        status: 'todo'
+      }
+    ];
+
+    const { data: tasks, error } = await supabase
+      .from('tasks')
+      .insert(roleTasks)
+      .select();
+
+    if (error) {
+      return res.status(400).json({ success: false, error: error.message });
+    }
+
+    res.json({ success: true, tasks, added: 5 });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
 
 app.post('/api/register', async (req, res) => {
   try {
@@ -889,35 +1282,105 @@ app.post('/api/register', async (req, res) => {
       return res.status(400).json({ error: 'Registration failed', details: error.message });
     }
 
-    await supabase.from('tasks').insert([
+    // Create 5 essential role-specific tasks
+    const isDataScientist = role === 'Data Scientist';
+    const roleTasks = isDataScientist ? [
+      // 5 Essential Data Science Tasks
       {
         user_id: user.id,
-        title: 'Complete Security Training',
-        category: 'IT',
+        title: 'Complete Python Basics Module',
+        category: 'Learning',
         due_date: new Date(Date.now() + 7 * 86400000).toISOString(),
+        points: 120,
+        is_mandatory: true,
+        status: 'todo'
+      },
+      {
+        user_id: user.id,
+        title: 'Complete Python for Data (Pandas/Numpy) Module',
+        category: 'Learning',
+        due_date: new Date(Date.now() + 14 * 86400000).toISOString(),
+        points: 160,
+        is_mandatory: true,
+        status: 'todo'
+      },
+      {
+        user_id: user.id,
+        title: 'Complete SQL for Analytics Module',
+        category: 'Learning',
+        due_date: new Date(Date.now() + 10 * 86400000).toISOString(),
+        points: 150,
+        is_mandatory: true,
+        status: 'todo'
+      },
+      {
+        user_id: user.id,
+        title: 'Set Up Python Development Environment',
+        category: 'Technical',
+        due_date: new Date(Date.now() + 3 * 86400000).toISOString(),
+        points: 30,
+        is_mandatory: true,
+        status: 'todo'
+      },
+      {
+        user_id: user.id,
+        title: 'Complete ML Basics (Scikit-learn) Module',
+        category: 'Learning',
+        due_date: new Date(Date.now() + 21 * 86400000).toISOString(),
+        points: 200,
+        is_mandatory: false,
+        status: 'todo'
+      }
+    ] : [
+      // 5 Essential Business Analyst Tasks
+      {
+        user_id: user.id,
+        title: 'Complete Excel for Analysis Module',
+        category: 'Learning',
+        due_date: new Date(Date.now() + 5 * 86400000).toISOString(),
+        points: 100,
+        is_mandatory: true,
+        status: 'todo'
+      },
+      {
+        user_id: user.id,
+        title: 'Complete SQL Basics (BA) Module',
+        category: 'Learning',
+        due_date: new Date(Date.now() + 7 * 86400000).toISOString(),
+        points: 120,
+        is_mandatory: true,
+        status: 'todo'
+      },
+      {
+        user_id: user.id,
+        title: 'Complete BI Dashboards (Power BI/Looker) Module',
+        category: 'Learning',
+        due_date: new Date(Date.now() + 10 * 86400000).toISOString(),
+        points: 150,
+        is_mandatory: true,
+        status: 'todo'
+      },
+      {
+        user_id: user.id,
+        title: 'Set Up Excel with Power Query',
+        category: 'Technical',
+        due_date: new Date(Date.now() + 2 * 86400000).toISOString(),
         points: 25,
         is_mandatory: true,
         status: 'todo'
       },
       {
         user_id: user.id,
-        title: 'Review Company Handbook',
-        category: 'HR',
-        due_date: new Date(Date.now() + 3 * 86400000).toISOString(),
-        points: 15,
-        is_mandatory: true,
-        status: 'todo'
-      },
-      {
-        user_id: user.id,
-        title: 'Set Up Development Environment',
-        category: 'Technical',
-        due_date: new Date(Date.now() + 5 * 86400000).toISOString(),
-        points: 20,
+        title: 'Complete Business Stats Fundamentals Module',
+        category: 'Learning',
+        due_date: new Date(Date.now() + 8 * 86400000).toISOString(),
+        points: 130,
         is_mandatory: false,
         status: 'todo'
       }
-    ]);
+    ];
+
+    await supabase.from('tasks').insert(roleTasks);
 
     res.json({ success: true, user });
   } catch (error) {
@@ -958,6 +1421,119 @@ app.get('/health', (req, res) => {
       'Proactive coaching suggestions'
     ]
   });
+});
+
+// ===== Modules API (Supabase-backed with safe fallback) =====
+app.get('/api/modules', async (req, res) => {
+  const role = req.query.role;
+  try {
+    const { data, error } = await supabase
+      .from('modules')
+      .select('*');
+    if (error) throw error;
+
+    // Map DB snake_case to frontend's expected camelCase
+    let modules = (data || []).map((m) => ({
+      id: m.id,
+      title: m.title,
+      category: m.category,
+      difficulty: m.difficulty,
+      estimatedMinutes: m.estimated_minutes,
+      totalLessons: m.total_lessons,
+      xpReward: m.xp_reward,
+      description: m.description,
+      tags: m.tags,
+      videoUrl: m.video_url,
+      thumbnail: m.thumbnail,
+      role: m.role,
+      progress: 0,
+    }));
+    if (role) {
+      const isBA = role.includes('Business');
+      modules = modules.filter((m) => (isBA ? m.id.startsWith('ba-') : m.id.startsWith('ds-')));
+    }
+    return res.json({ success: true, modules });
+  } catch (err) {
+    // Fallback to built-in catalog
+    let modules = defaultModules;
+    if (role) {
+      const isBA = role.includes('Business');
+      modules = modules.filter((m) => (isBA ? m.id.startsWith('ba-') : m.id.startsWith('ds-')));
+    }
+    modules = modules.map((m) => ({ ...m, progress: 0 }));
+    return res.json({ success: true, modules, fallback: true });
+  }
+});
+
+app.get('/api/user-modules/:userId', async (req, res) => {
+  const { userId } = req.params;
+  try {
+    const { data, error } = await supabase
+      .from('user_modules')
+      .select('module_id, progress, last_opened_at')
+      .eq('user_id', userId);
+    if (error) throw error;
+    return res.json({ success: true, progress: data || [] });
+  } catch (err) {
+    // If table missing, return empty progress so UI can function
+    return res.json({ success: true, progress: [] });
+  }
+});
+
+app.post('/api/user-modules/progress', async (req, res) => {
+  try {
+    const { userId, moduleId, progress, lastOpenedAt } = req.body;
+    if (!userId || !moduleId) {
+      return res.status(400).json({ success: false, error: 'userId and moduleId are required' });
+    }
+    const payload = {
+      user_id: userId,
+      module_id: moduleId,
+      progress: typeof progress === 'number' ? progress : 0,
+      last_opened_at: lastOpenedAt || new Date().toISOString(),
+    };
+    const { error } = await supabase
+      .from('user_modules')
+      .upsert(payload, { onConflict: 'user_id,module_id' });
+    if (error) throw error;
+    return res.json({ success: true });
+  } catch (err) {
+    return res.status(200).json({ success: true, fallback: true });
+  }
+});
+
+// Admin: seed modules catalog into Supabase (run once after creating tables)
+app.post('/api/admin/seed-modules', async (req, res) => {
+  try {
+    const payload = defaultModules.map((m) => ({
+      id: m.id,
+      title: m.title,
+      category: m.category,
+      difficulty: m.difficulty,
+      estimated_minutes: m.estimatedMinutes,
+      total_lessons: m.totalLessons,
+      xp_reward: m.xpReward,
+      description: m.description,
+      tags: m.tags,
+      video_url: m.videoUrl,
+      thumbnail: m.thumbnail,
+      role: m.role,
+    }));
+
+    const { error } = await supabase
+      .from('modules')
+      .upsert(payload, { onConflict: 'id' });
+
+    if (error) throw error;
+    return res.json({ success: true, inserted: payload.length });
+  } catch (err) {
+    return res.status(500).json({
+      success: false,
+      error: String(err.message || err),
+      hint:
+        'Make sure the modules table exists with the expected columns. See README/SQL instructions to create schema and RLS policies.',
+    });
+  }
 });
 
 app.listen(port, () => {

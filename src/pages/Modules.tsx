@@ -1,5 +1,5 @@
 
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
   Play,
   Clock,
@@ -11,10 +11,17 @@ import {
 import { ProgressRing } from "../components/ui/ProgressRing";
 import { useGameStore } from "../stores/gameStore";
 import { useAuthStore } from "../stores/authStore";
-import { useModuleStore } from "../stores/moduleStore";
+import { useModuleStore, defaultModules } from "../stores/moduleStore";
 
 export const Modules: React.FC = () => {
-  const { modules, updateModule } = useModuleStore();
+  const { modules, updateModule, resetModules } = useModuleStore();
+  const effectiveModules = modules.length === 0 ? defaultModules : modules;
+  // Seed defaults if storage is empty after hydration
+  useEffect(() => {
+    if (modules.length === 0) {
+      resetModules();
+    }
+  }, [modules.length, resetModules]);
   const [selectedModule, setSelectedModule] = useState<string | null>(null);
   const [categoryFilter, setCategoryFilter] = useState("all");
   const [difficultyFilter, setDifficultyFilter] = useState("all");
@@ -22,13 +29,71 @@ export const Modules: React.FC = () => {
   const triggerXpGain = useGameStore((state) => state.triggerXpGain);
   const { user, updateUser } = useAuthStore();
 
+  // Backend-fetched modules based on role with progress
+  const [apiModules, setApiModules] = useState(effectiveModules);
+  useEffect(() => {
+    const role = user?.role || "";
+    const controller = new AbortController();
+    (async () => {
+      try {
+        const q = role ? `?role=${encodeURIComponent(role)}` : "";
+        const res = await fetch(`http://localhost:3001/api/modules${q}`, { signal: controller.signal });
+        if (res.ok) {
+          const data = await res.json();
+          if (data && Array.isArray(data.modules) && data.modules.length > 0) {
+            let modules = data.modules;
+            
+            // Load user progress and merge with modules
+            if (user?.id) {
+              try {
+                const progressRes = await fetch(`http://localhost:3001/api/user-modules/${user.id}`, { signal: controller.signal });
+                if (progressRes.ok) {
+                  const progressData = await progressRes.json();
+                  if (progressData.success && Array.isArray(progressData.progress)) {
+                    modules = modules.map((module: any) => {
+                      const userProgress = progressData.progress.find((p: any) => p.module_id === module.id);
+                      return userProgress ? { ...module, progress: userProgress.progress } : module;
+                    });
+                  }
+                }
+              } catch (e) {
+                console.error('Failed to load user progress:', e);
+              }
+            }
+            
+            setApiModules(modules);
+            return;
+          }
+        }
+        setApiModules(effectiveModules);
+      } catch {
+        setApiModules(effectiveModules);
+      }
+    })();
+    return () => controller.abort();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.role, user?.id]);
+
+  const saveProgress = async (moduleId: string, progress: number) => {
+    try {
+      if (!user?.id) return;
+      await fetch("http://localhost:3001/api/user-modules/progress", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId: user.id, moduleId, progress, lastOpenedAt: new Date().toISOString() }),
+      });
+    } catch {}
+  };
+
   const handleStartModule = (id: string) => {
     updateModule(id, { lastOpenedAt: new Date().toISOString().split("T")[0] });
+    saveProgress(id, 0);
     setSelectedModule(id);
   };
 
-  const handleCompleteModule = (id: string) => {
-    const module = modules.find((m) => m.id === id);
+  const handleCompleteModule = async (id: string) => {
+    const source = apiModules.length ? apiModules : effectiveModules;
+    const module = source.find((m) => m.id === id);
     if (!module) return;
 
     if (user) {
@@ -45,6 +110,8 @@ export const Modules: React.FC = () => {
     }
 
     updateModule(id, { progress: 100 });
+    setApiModules((prev) => prev.map((m) => (m.id === id ? { ...m, progress: 100 } : m)));
+    await saveProgress(id, 100);
     setSelectedModule(null);
   };
 
@@ -62,7 +129,14 @@ export const Modules: React.FC = () => {
     return texts[difficulty as 1 | 2 | 3];
   };
 
-  const filteredModules = modules.filter((m) => {
+  const userRole = user?.role || '';
+  const source = apiModules.length ? apiModules : effectiveModules;
+  const filteredModules = source.filter((m) => {
+    // Role filtering
+    const roleMatch = userRole === 'Business Analyst' ? m.id.startsWith('ba-') : 
+                     userRole === 'Data Scientist' ? m.id.startsWith('ds-') :
+                     userRole.includes('Business') ? m.id.startsWith('ba-') : m.id.startsWith('ds-');
+    
     const matchesCategory =
       categoryFilter === "all" || m.category === categoryFilter;
     const matchesDifficulty =
@@ -73,11 +147,11 @@ export const Modules: React.FC = () => {
       m.tags.some((tag) =>
         tag.toLowerCase().includes(searchTerm.toLowerCase())
       );
-    return matchesCategory && matchesDifficulty && matchesSearch;
+    return roleMatch && matchesCategory && matchesDifficulty && matchesSearch;
   });
 
   if (selectedModule) {
-    const module = modules.find((m) => m.id === selectedModule)!;
+    const module = source.find((m) => m.id === selectedModule)!;
     return (
       <div className="p-6 max-w-7xl mx-auto">
         <button
@@ -149,7 +223,7 @@ export const Modules: React.FC = () => {
           className="px-4 py-2 border border-[#D6D9E0] rounded-xl"
         >
           <option value="all">All Categories</option>
-          {[...new Set(modules.map((m) => m.category))].map((c) => (
+          {[...new Set(source.map((m) => m.category))].map((c) => (
             <option key={c} value={c}>
               {c}
             </option>
