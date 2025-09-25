@@ -1,4 +1,4 @@
-import React, { useEffect } from "react";
+import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   CheckSquare,
@@ -16,7 +16,7 @@ import { XpBadge } from "../components/ui/XpBadge";
 import { useAuthStore } from "../stores/authStore";
 import { useGameStore } from "../stores/gameStore";
 import { useTaskStore } from "../stores/taskStore";
-import { useModuleStore } from "../stores/moduleStore";
+import { useModuleStore, defaultModules } from "../stores/moduleStore";
 
 const mockAnnouncements = [
   {
@@ -40,52 +40,87 @@ export const Dashboard: React.FC = () => {
   const triggerXpGain = useGameStore((state) => state.triggerXpGain);
 
   const { tasks, completeTask, editTask, fetchTasks } = useTaskStore();
-  const { user, updateUser } = useAuthStore();
+  const { user, updateUser   } = useAuthStore();
+  const [apiModules, setApiModules] = useState(defaultModules);
 
+useEffect(() => {
+  if (user?.id) {
+    fetchTasks(user.id);
+  }
+}, [user?.id]);
+
+  // Fetch modules from backend by role with progress
   useEffect(() => {
-    if (user?.id) {
-      fetchTasks(user.id);
-    }
-  }, [user?.id]);
-
-  const { modules } = useModuleStore();
+    const role = user?.role || '';
+    const controller = new AbortController();
+    (async () => {
+      try {
+        const q = role ? `?role=${encodeURIComponent(role)}` : '';
+        const res = await fetch(`http://localhost:3001/api/modules${q}`, { signal: controller.signal });
+        if (res.ok) {
+          const data = await res.json();
+          if (data && Array.isArray(data.modules) && data.modules.length > 0) {
+            let modules = data.modules;
+            
+            // Load user progress and merge with modules
+            if (user?.id) {
+              try {
+                const progressRes = await fetch(`http://localhost:3001/api/user-modules/${user.id}`, { signal: controller.signal });
+                if (progressRes.ok) {
+                  const progressData = await progressRes.json();
+                  if (progressData.success && Array.isArray(progressData.progress)) {
+                    modules = modules.map((module: any) => {
+                      const userProgress = progressData.progress.find((p: any) => p.module_id === module.id);
+                      return userProgress ? { ...module, progress: userProgress.progress } : module;
+                    });
+                  }
+                }
+              } catch (e) {
+                console.error('Failed to load user progress:', e);
+              }
+            }
+            
+            setApiModules(modules);
+            return;
+          }
+        }
+        setApiModules(defaultModules);
+      } catch {
+        setApiModules(defaultModules);
+      }
+    })();
+    return () => controller.abort();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.role, user?.id]);
 
   if (!user) return null;
 
-  // --- XP + Level Logic ---
-  const xpPerLevel = 150; // flat requirement per level (can make dynamic later)
-  const currentLevelXp = (user.level - 1) * xpPerLevel;
+  
+  const currentLevelXp = (user.level - 1) * 150; 
   const xpInCurrentLevel = user.currentXp - currentLevelXp;
-  const xpNeededForNextLevel = xpPerLevel;
-  const progressToNextLevel = Math.min(
-    100,
-    Math.max(0, (xpInCurrentLevel / xpNeededForNextLevel) * 100)
-  );
+  const xpNeededForNextLevel = 150;
+  const progressToNextLevel = Math.min(100, Math.max(0, (xpInCurrentLevel / xpNeededForNextLevel) * 100));
 
-  const handleTaskToggle = (
-    taskId: string,
-    points: number,
-    currentStatus: string
-  ) => {
-    const task = tasks.find((t) => t.id === taskId);
+  const handleTaskToggle = (taskId: string, points: number, currentStatus: string) => {
+    const task = tasks.find(t => t.id === taskId);
     if (!task || !user) return;
 
     if (currentStatus === "done") {
       editTask(taskId, { status: "todo", completedAt: undefined });
-
+      
       const newXp = Math.max(0, user.currentXp - points);
-      const newLevel = Math.max(1, Math.floor(newXp / xpPerLevel) + 1);
-
+      const newLevel = Math.max(1, Math.floor(newXp / 150) + 1);
+      
       updateUser({
         currentXp: newXp,
         level: newLevel,
       });
     } else {
       completeTask(taskId);
-
+      
       const newXp = user.currentXp + points;
-      const newLevel = Math.floor(newXp / xpPerLevel) + 1;
-
+      const newLevel = Math.floor(newXp / 150) + 1;
+      
       updateUser({
         currentXp: newXp,
         level: Math.max(newLevel, user.level),
@@ -158,7 +193,7 @@ export const Dashboard: React.FC = () => {
                   </div>
                 </ProgressRing>
                 <p className="text-sm text-[#4A5568]">
-                  {xpInCurrentLevel.toLocaleString()} /{" "}
+                  {user.currentXp.toLocaleString()} /{" "}
                   {xpNeededForNextLevel.toLocaleString()} XP
                 </p>
               </div>
@@ -210,7 +245,6 @@ export const Dashboard: React.FC = () => {
         </div>
       </div>
 
-      {/* Checklist + Modules */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-6">
         {/* Checklist */}
         <div className="bg-white rounded-2xl shadow p-6">
@@ -231,16 +265,14 @@ export const Dashboard: React.FC = () => {
             {tasks.slice(0, 3).map((task) => {
               const dueDateInfo = getDueDateStatus(task.dueDate);
               const isCompleted = task.status === "done";
-
+              
               return (
                 <div
                   key={task.id}
                   className="flex items-center gap-4 p-4 bg-[#F5F7FA] rounded-xl"
                 >
                   <button
-                    onClick={() =>
-                      handleTaskToggle(task.id, task.points, task.status)
-                    }
+                    onClick={() => handleTaskToggle(task.id, task.points, task.status)}
                     className={`w-6 h-6 border-2 rounded-lg flex items-center justify-center transition-all duration-200 ${
                       isCompleted
                         ? "bg-[#2BA84A] border-[#2BA84A] text-white"
@@ -249,7 +281,7 @@ export const Dashboard: React.FC = () => {
                   >
                     {isCompleted && <Check className="w-4 h-4" />}
                   </button>
-
+                  
                   <div className="flex-1">
                     <h4
                       className={`font-medium transition-colors ${
@@ -270,18 +302,11 @@ export const Dashboard: React.FC = () => {
                       )}
                       {isCompleted && (
                         <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-green-50 text-green-700">
-                          Completed{" "}
-                          {task.completedAt
-                            ? new Date(task.completedAt).toLocaleDateString()
-                            : "today"}
+                          Completed {task.completedAt ? new Date(task.completedAt).toLocaleDateString() : 'today'}
                         </span>
                       )}
-                      <span
-                        className={`text-xs ${
-                          isCompleted ? "text-green-600" : "text-[#4A5568]"
-                        }`}
-                      >
-                        {isCompleted ? "+" : ""}+{task.points} XP
+                      <span className={`text-xs ${isCompleted ? 'text-green-600' : 'text-[#4A5568]'}`}>
+                        {isCompleted ? '+' : ''}+{task.points} XP
                       </span>
                     </div>
                   </div>
@@ -307,31 +332,47 @@ export const Dashboard: React.FC = () => {
           </div>
 
           <div className="space-y-4">
-            {modules.map((module) => (
-              <div
-                key={module.id}
-                className="p-4 border border-[#D6D9E0] rounded-xl hover:border-[#0A6ED1] transition-colors cursor-pointer"
-              >
-                <div className="flex items-center justify-between mb-3">
-                  <h4 className="font-medium text-[#0B2447]">{module.title}</h4>
-                  <ChevronRight className="w-4 h-4 text-[#4A5568]" />
-                </div>
-                <div className="flex items-center gap-3">
-                  <div className="flex-1">
-                    <div className="w-full bg-[#E8EAF6] rounded-full h-2">
-                      <div
-                        className="bg-[#0A6ED1] h-2 rounded-full transition-all duration-300"
-                        style={{ width: `${module.progress}%` }}
-                      />
+            {apiModules.slice(0, 3).map((module) => {
+              const isCompleted = module.progress === 100;
+              return (
+                <div
+                  key={module.id}
+                  className={`p-4 border rounded-xl hover:border-[#0A6ED1] transition-colors cursor-pointer ${
+                    isCompleted 
+                      ? 'border-green-200 bg-green-50' 
+                      : 'border-[#D6D9E0]'
+                  }`}
+                >
+                  <div className="flex items-center justify-between mb-3">
+                    <h4 className={`font-medium ${isCompleted ? 'text-green-800' : 'text-[#0B2447]'}`}>
+                      {module.title}
+                    </h4>
+                    <div className="flex items-center gap-2">
+                      {isCompleted && (
+                        <span className="text-green-600 text-xs font-medium">✓ Completed</span>
+                      )}
+                      <ChevronRight className="w-4 h-4 text-[#4A5568]" />
                     </div>
                   </div>
-                  <span className="text-sm text-[#4A5568]">
-                    {Math.floor((module.progress / 100) * module.totalLessons)}/
-                    {module.totalLessons}
-                  </span>
+                  <div className="flex items-center gap-3">
+                    <div className="flex-1">
+                      <div className="w-full bg-[#E8EAF6] rounded-full h-2">
+                        <div
+                          className={`h-2 rounded-full transition-all duration-300 ${
+                            isCompleted ? 'bg-green-500' : 'bg-[#0A6ED1]'
+                          }`}
+                          style={{ width: `${module.progress}%` }}
+                        />
+                      </div>
+                    </div>
+                    <span className={`text-sm ${isCompleted ? 'text-green-600' : 'text-[#4A5568]'}`}>
+                      {Math.floor((module.progress / 100) * module.totalLessons)}/
+                      {module.totalLessons}
+                    </span>
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       </div>

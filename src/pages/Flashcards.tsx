@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { RotateCcw, ChevronLeft, ChevronRight, Star, Brain, Search } from 'lucide-react';
+import { RotateCcw, ChevronLeft, ChevronRight, Star, Brain, Filter, Search } from 'lucide-react';
 import { useGameStore } from '../stores/gameStore';
 import { useAuthStore } from '../stores/authStore';
 
@@ -21,7 +21,6 @@ interface FlashcardSet {
   xpReward: number;
 }
 
-// --- Flashcard Sets with extra questions ---
 const mockFlashcardSets: FlashcardSet[] = [
   {
     id: '1',
@@ -32,7 +31,7 @@ const mockFlashcardSets: FlashcardSet[] = [
     cards: [
       {
         id: '1-1',
-        question: "What is our company's policy on remote work?",
+        question: 'What is our company\'s policy on remote work?',
         answer: 'Employees can work remotely up to 3 days per week with manager approval. Full remote work requires special arrangement.',
         category: 'HR',
         difficulty: 1,
@@ -53,22 +52,6 @@ const mockFlashcardSets: FlashcardSet[] = [
         category: 'HR',
         difficulty: 1,
         tags: ['time off', 'process']
-      },
-      {
-        id: '1-4',
-        question: 'What is the company’s dress code policy?',
-        answer: 'Business casual attire Monday–Thursday. Fridays are casual with jeans permitted.',
-        category: 'HR',
-        difficulty: 1,
-        tags: ['dress code']
-      },
-      {
-        id: '1-5',
-        question: 'How are performance reviews conducted?',
-        answer: 'Reviews are held annually and include self-assessment, manager feedback, and a career growth plan.',
-        category: 'HR',
-        difficulty: 2,
-        tags: ['performance review']
       }
     ]
   },
@@ -90,7 +73,7 @@ const mockFlashcardSets: FlashcardSet[] = [
       {
         id: '2-2',
         question: 'How should you handle suspicious emails?',
-        answer: 'Never click links or download attachments. Report to IT security immediately.',
+        answer: 'Never click links or download attachments. Report to IT security team immediately. When in doubt, verify sender through alternate communication.',
         category: 'Security',
         difficulty: 2,
         tags: ['phishing', 'email']
@@ -101,23 +84,7 @@ const mockFlashcardSets: FlashcardSet[] = [
         answer: 'An extra security layer requiring two forms of verification: something you know (password) and something you have (phone/token).',
         category: 'Security',
         difficulty: 2,
-        tags: ['2FA']
-      },
-      {
-        id: '2-4',
-        question: 'What should you do if you lose your company laptop?',
-        answer: 'Report immediately to IT security and your manager. The device will be remotely locked and tracked.',
-        category: 'Security',
-        difficulty: 2,
-        tags: ['device', 'incident']
-      },
-      {
-        id: '2-5',
-        question: 'What is phishing and how do you recognize it?',
-        answer: 'Phishing tries to steal data via fake messages. Signs include misspellings, urgent tone, and suspicious links.',
-        category: 'Security',
-        difficulty: 2,
-        tags: ['phishing']
+        tags: ['2FA', 'authentication']
       }
     ]
   },
@@ -131,189 +98,149 @@ const mockFlashcardSets: FlashcardSet[] = [
       {
         id: '3-1',
         question: 'What is our main product offering?',
-        answer: 'We provide cloud-based enterprise software solutions that help businesses streamline operations.',
+        answer: 'We provide cloud-based enterprise software solutions that help businesses streamline their operations and improve efficiency.',
         category: 'Product',
         difficulty: 1,
-        tags: ['product']
+        tags: ['product', 'overview']
       },
       {
         id: '3-2',
         question: 'Who are our primary target customers?',
-        answer: 'Mid to large-size enterprises in manufacturing, healthcare, and financial services.',
+        answer: 'Mid to large-size enterprises (500+ employees) in manufacturing, healthcare, and financial services sectors.',
         category: 'Product',
         difficulty: 2,
-        tags: ['customers']
+        tags: ['customers', 'target market']
       },
       {
         id: '3-3',
         question: 'What sets us apart from competitors?',
-        answer: 'Our AI analytics, 99.9% uptime guarantee, and customer success team.',
+        answer: 'Our AI-powered analytics, 99.9% uptime guarantee, and dedicated customer success team provide superior value and reliability.',
         category: 'Product',
         difficulty: 2,
-        tags: ['advantage']
-      },
-      {
-        id: '3-4',
-        question: 'How does our product pricing model work?',
-        answer: 'Subscription-based, billed monthly or annually, with enterprise discounts.',
-        category: 'Product',
-        difficulty: 2,
-        tags: ['pricing']
-      },
-      {
-        id: '3-5',
-        question: 'What is our uptime SLA?',
-        answer: 'We guarantee 99.9% uptime with 24/7 monitoring and automatic failover systems.',
-        category: 'Product',
-        difficulty: 2,
-        tags: ['SLA']
+        tags: ['competitive advantage', 'differentiation']
       }
     ]
   },
   {
     id: '4',
     title: 'Leadership Fundamentals',
-    description: 'Essential leadership skills for career growth',
+    description: 'Essential leadership skills and principles for career growth',
     category: 'Leadership',
     xpReward: 80,
     cards: [
       {
         id: '4-1',
-        question: 'What are key qualities of an effective leader?',
-        answer: 'Integrity, empathy, communication, decision-making, and ability to inspire others.',
+        question: 'What are the key qualities of an effective leader?',
+        answer: 'Effective leaders demonstrate integrity, empathy, clear communication, decision-making skills, and the ability to inspire and motivate others toward common goals.',
         category: 'Leadership',
         difficulty: 2,
-        tags: ['qualities']
+        tags: ['leadership', 'qualities']
       },
       {
         id: '4-2',
-        question: 'How do you handle conflict in a team?',
-        answer: 'Address conflicts early, listen to all parties, focus on issues not personalities, and find common ground.',
+        question: 'How do you handle conflict within a team?',
+        answer: 'Address conflicts early, listen to all parties, focus on the issue not personalities, find common ground, and work collaboratively toward a solution that benefits the team.',
         category: 'Leadership',
         difficulty: 2,
-        tags: ['conflict']
+        tags: ['conflict resolution', 'team management']
       },
       {
         id: '4-3',
         question: 'What is the difference between management and leadership?',
-        answer: 'Management focuses on processes and systems. Leadership focuses on vision, inspiration, and people.',
+        answer: 'Management focuses on processes, systems, and maintaining status quo. Leadership focuses on vision, inspiration, change, and developing people to reach their potential.',
         category: 'Leadership',
         difficulty: 2,
-        tags: ['difference']
+        tags: ['management', 'leadership', 'difference']
       },
       {
         id: '4-4',
         question: 'How do you motivate team members?',
-        answer: 'Understand individual motivations, provide clear goals, offer recognition, and create growth opportunities.',
+        answer: 'Understand individual motivations, provide clear goals, offer recognition, create growth opportunities, give autonomy, and connect work to meaningful purpose.',
         category: 'Leadership',
         difficulty: 2,
-        tags: ['motivation']
-      },
-      {
-        id: '4-5',
-        question: 'How do leaders build trust?',
-        answer: 'By being transparent, consistent, and showing empathy.',
-        category: 'Leadership',
-        difficulty: 2,
-        tags: ['trust']
+        tags: ['motivation', 'team building']
       }
     ]
   },
   {
     id: '5',
     title: 'Communication Excellence',
-    description: 'Master professional communication skills',
+    description: 'Master professional communication skills for workplace success',
     category: 'Communication',
     xpReward: 65,
     cards: [
       {
         id: '5-1',
-        question: 'What are key elements of effective communication?',
-        answer: 'Clear message, active listening, empathy, feedback, and adapting style to the audience.',
+        question: 'What are the key elements of effective communication?',
+        answer: 'Clear message, appropriate medium, active listening, empathy, feedback, non-verbal awareness, and adapting style to your audience.',
         category: 'Communication',
         difficulty: 1,
-        tags: ['elements']
+        tags: ['communication', 'effectiveness']
       },
       {
         id: '5-2',
         question: 'How do you give constructive feedback?',
-        answer: 'Be specific, focus on behavior not personality, use examples, and create a safe environment.',
+        answer: 'Be specific, focus on behavior not personality, use "I" statements, provide examples, suggest improvements, and create a safe environment for dialogue.',
         category: 'Communication',
         difficulty: 2,
-        tags: ['feedback']
+        tags: ['feedback', 'constructive']
       },
       {
         id: '5-3',
         question: 'What is active listening?',
-        answer: 'Fully concentrating on the speaker, understanding, responding thoughtfully, and remembering key points.',
+        answer: 'Fully concentrating on the speaker, understanding their message, responding thoughtfully, and remembering key points without interrupting or judging.',
         category: 'Communication',
         difficulty: 1,
-        tags: ['listening']
+        tags: ['listening', 'active listening']
       },
       {
         id: '5-4',
         question: 'How do you handle difficult conversations?',
-        answer: 'Prepare, stay calm, listen actively, acknowledge emotions, and focus on solutions.',
+        answer: 'Prepare beforehand, stay calm, listen actively, acknowledge emotions, focus on solutions, be honest but respectful, and follow up afterward.',
         category: 'Communication',
         difficulty: 3,
-        tags: ['conflict']
-      },
-      {
-        id: '5-5',
-        question: 'What role does body language play?',
-        answer: 'It reinforces or contradicts spoken words through posture, eye contact, and gestures.',
-        category: 'Communication',
-        difficulty: 2,
-        tags: ['body language']
+        tags: ['difficult conversations', 'conflict']
       }
     ]
   },
   {
     id: '6',
     title: 'Time Management & Productivity',
-    description: 'Optimize time and boost productivity',
+    description: 'Optimize your time and boost productivity in the workplace',
     category: 'Productivity',
     xpReward: 55,
     cards: [
       {
         id: '6-1',
         question: 'What is the Eisenhower Matrix?',
-        answer: 'A tool categorizing tasks into Do, Schedule, Delegate, and Eliminate.',
+        answer: 'A prioritization tool that categorizes tasks into four quadrants: Urgent & Important (Do), Important & Not Urgent (Schedule), Urgent & Not Important (Delegate), Neither (Eliminate).',
         category: 'Productivity',
         difficulty: 2,
-        tags: ['matrix']
+        tags: ['prioritization', 'eisenhower matrix']
       },
       {
         id: '6-2',
         question: 'How do you avoid procrastination?',
-        answer: 'Break tasks down, set deadlines, eliminate distractions, use time-blocking.',
+        answer: 'Break large tasks into smaller steps, set deadlines, eliminate distractions, use time-blocking, reward progress, and understand your peak energy hours.',
         category: 'Productivity',
         difficulty: 2,
-        tags: ['procrastination']
+        tags: ['procrastination', 'time management']
       },
       {
         id: '6-3',
         question: 'What is the Pomodoro Technique?',
-        answer: '25-minute focused work sessions followed by 5-minute breaks.',
+        answer: 'A time management method using 25-minute focused work intervals followed by 5-minute breaks, with longer breaks after every 4 cycles.',
         category: 'Productivity',
         difficulty: 1,
-        tags: ['pomodoro']
+        tags: ['pomodoro', 'focus']
       },
       {
         id: '6-4',
         question: 'How do you manage multiple priorities?',
-        answer: 'List tasks, assess urgency, delegate, and adjust regularly.',
+        answer: 'List all tasks, assess urgency and importance, communicate with stakeholders, delegate when possible, and regularly review and adjust priorities.',
         category: 'Productivity',
         difficulty: 2,
-        tags: ['priorities']
-      },
-      {
-        id: '6-5',
-        question: 'What is time-blocking?',
-        answer: 'Scheduling specific blocks of time for focused work on tasks.',
-        category: 'Productivity',
-        difficulty: 2,
-        tags: ['time-blocking']
+        tags: ['priorities', 'multitasking']
       }
     ]
   }
@@ -323,36 +250,33 @@ export const Flashcards: React.FC = () => {
   const [selectedSet, setSelectedSet] = useState<FlashcardSet | null>(null);
   const [currentCardIndex, setCurrentCardIndex] = useState(0);
   const [isFlipped, setIsFlipped] = useState(false);
-  const [correctCards, setCorrectCards] = useState<Set<string>>(new Set());
-  const [wrongCards, setWrongCards] = useState<Set<string>>(new Set());
+  const [completedCards, setCompletedCards] = useState<Set<string>>(new Set());
   const [categoryFilter, setCategoryFilter] = useState<string>('all');
   const [searchTerm, setSearchTerm] = useState('');
-  const [showRecap, setShowRecap] = useState(false);
-
   const triggerXpGain = useGameStore(state => state.triggerXpGain);
   const { user, updateUser } = useAuthStore();
 
-  const markCardCorrect = () => {
+  const handleSetComplete = () => {
     if (selectedSet) {
-      const cardId = selectedSet.cards[currentCardIndex].id;
-      setCorrectCards(prev => new Set([...prev, cardId]));
-      setWrongCards(prev => {
-        const updated = new Set(prev);
-        updated.delete(cardId);
-        return updated;
-      });
-    }
-  };
-
-  const markCardWrong = () => {
-    if (selectedSet) {
-      const cardId = selectedSet.cards[currentCardIndex].id;
-      setWrongCards(prev => new Set([...prev, cardId]));
-      setCorrectCards(prev => {
-        const updated = new Set(prev);
-        updated.delete(cardId);
-        return updated;
-      });
+      // Update user XP and level
+      if (user) {
+        const newXp = user.currentXp + selectedSet.xpReward;
+        const newLevel = Math.floor(newXp / 150) + 1;
+        updateUser({ 
+          currentXp: newXp,
+          level: Math.max(newLevel, user.level)
+        });
+        
+        // Trigger XP gain animation after state update
+        setTimeout(() => {
+          triggerXpGain(selectedSet.xpReward);
+        }, 100);
+      }
+      
+      setSelectedSet(null);
+      setCurrentCardIndex(0);
+      setIsFlipped(false);
+      setCompletedCards(new Set());
     }
   };
 
@@ -361,6 +285,7 @@ export const Flashcards: React.FC = () => {
       setCurrentCardIndex(currentCardIndex + 1);
       setIsFlipped(false);
     } else if (selectedSet) {
+      // All cards completed
       handleSetComplete();
     }
   };
@@ -372,16 +297,11 @@ export const Flashcards: React.FC = () => {
     }
   };
 
-  const handleSetComplete = () => {
-    if (selectedSet && user) {
-      const newXp = user.currentXp + selectedSet.xpReward;
-      const newLevel = Math.floor(newXp / 150) + 1;
-      updateUser({ currentXp: newXp, level: Math.max(newLevel, user.level) });
-      setTimeout(() => {
-        triggerXpGain(selectedSet.xpReward);
-      }, 100);
+  const markCardComplete = () => {
+    if (selectedSet) {
+      const cardId = selectedSet.cards[currentCardIndex].id;
+      setCompletedCards(prev => new Set([...prev, cardId]));
     }
-    setShowRecap(true);
   };
 
   const filteredSets = mockFlashcardSets.filter(set => {
@@ -393,136 +313,109 @@ export const Flashcards: React.FC = () => {
 
   const categories = [...new Set(mockFlashcardSets.map(s => s.category))];
 
-  if (showRecap && selectedSet) {
-    const correct = selectedSet.cards.filter(card => correctCards.has(card.id));
-    const wrong = selectedSet.cards.filter(card => wrongCards.has(card.id));
-
-    return (
-      <div className="p-6 max-w-4xl mx-auto">
-        <h1 className="text-2xl font-bold mb-6">Recap for {selectedSet.title}</h1>
-
-        <div className="mb-6">
-          <h2 className="text-lg font-semibold text-green-600 mb-2">✅ Things you got right</h2>
-          {correct.length > 0 ? (
-            <ul className="list-disc ml-6 space-y-2">
-              {correct.map(card => (
-                <li key={card.id}>
-                  <span className="font-medium">{card.question}</span> — {card.answer}
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p className="text-gray-500">No correct answers this time.</p>
-          )}
-        </div>
-
-        <div>
-          <h2 className="text-lg font-semibold text-red-600 mb-2">❌ Things to review</h2>
-          {wrong.length > 0 ? (
-            <ul className="list-disc ml-6 space-y-2">
-              {wrong.map(card => (
-                <li key={card.id}>
-                  <span className="font-medium">{card.question}</span> — {card.answer}
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p className="text-gray-500">Great job — nothing to review!</p>
-          )}
-        </div>
-
-        <button
-          onClick={() => {
-            setSelectedSet(null);
-            setShowRecap(false);
-            setCorrectCards(new Set());
-            setWrongCards(new Set());
-            setCurrentCardIndex(0);
-          }}
-          className="mt-8 bg-[#0A6ED1] text-white px-6 py-3 rounded-xl hover:bg-[#0859ab]"
-        >
-          Back to Flashcard Sets
-        </button>
-      </div>
-    );
-  }
-
   if (selectedSet) {
     const currentCard = selectedSet.cards[currentCardIndex];
     const progress = ((currentCardIndex + 1) / selectedSet.cards.length) * 100;
 
     return (
       <div className="p-6 max-w-4xl mx-auto">
-        <div className="mb-6 flex justify-between items-center">
+        <div className="mb-6">
           <button
             onClick={() => setSelectedSet(null)}
-            className="text-[#0A6ED1] hover:underline"
+            className="text-[#0A6ED1] hover:underline mb-4"
           >
-            ← Back
+            ← Back to Flashcard Sets
           </button>
-          <div className="text-sm text-[#4A5568]">
-            Progress: {currentCardIndex + 1}/{selectedSet.cards.length}
+          <div className="flex items-center justify-between">
+            <div>
+              <h1 className="text-3xl font-bold text-[#0B2447] mb-2">{selectedSet.title}</h1>
+              <p className="text-[#4A5568]">Card {currentCardIndex + 1} of {selectedSet.cards.length}</p>
+            </div>
+            <div className="text-right">
+              <div className="text-sm text-[#4A5568] mb-1">Progress</div>
+              <div className="w-32 bg-[#E8EAF6] rounded-full h-2">
+                <div 
+                  className="bg-[#0A6ED1] h-2 rounded-full transition-all duration-300"
+                  style={{ width: `${progress}%` }}
+                />
+              </div>
+            </div>
           </div>
         </div>
 
-        <div
-          className="bg-white rounded-2xl shadow p-8 min-h-[250px] flex items-center justify-center cursor-pointer mb-6"
-          onClick={() => setIsFlipped(!isFlipped)}
-        >
-          {!isFlipped ? (
+        {/* Flashcard */}
+        <div className="mb-8">
+          <div 
+            className="bg-white rounded-2xl shadow-[0_6px_24px_rgba(0,0,0,0.08)] p-8 min-h-[300px] flex items-center justify-center cursor-pointer transition-transform hover:scale-105"
+            onClick={() => setIsFlipped(!isFlipped)}
+          >
             <div className="text-center">
-              <Brain className="w-10 h-10 text-[#0A6ED1] mx-auto mb-4" />
-              <h2 className="text-lg font-bold mb-2">Question</h2>
-              <p>{currentCard.question}</p>
+              {!isFlipped ? (
+                <>
+                  <Brain className="w-12 h-12 text-[#0A6ED1] mx-auto mb-4" />
+                  <h2 className="text-xl font-semibold text-[#0B2447] mb-4">Question</h2>
+                  <p className="text-lg text-[#4A5568] leading-relaxed">{currentCard.question}</p>
+                  <p className="text-sm text-[#4A5568] mt-6 opacity-75">Click to reveal answer</p>
+                </>
+              ) : (
+                <>
+                  <Star className="w-12 h-12 text-[#FFD23F] mx-auto mb-4" />
+                  <h2 className="text-xl font-semibold text-[#0B2447] mb-4">Answer</h2>
+                  <p className="text-lg text-[#4A5568] leading-relaxed">{currentCard.answer}</p>
+                </>
+              )}
             </div>
-          ) : (
-            <div className="text-center">
-              <Star className="w-10 h-10 text-[#FFD23F] mx-auto mb-4" />
-              <h2 className="text-lg font-bold mb-2">Answer</h2>
-              <p>{currentCard.answer}</p>
-            </div>
-          )}
+          </div>
         </div>
 
-        <div className="flex justify-between items-center">
+        {/* Controls */}
+        <div className="flex items-center justify-between">
           <button
             onClick={prevCard}
             disabled={currentCardIndex === 0}
-            className="px-4 py-2 border rounded-xl disabled:opacity-50"
+            className="flex items-center gap-2 px-4 py-2 border border-[#D6D9E0] rounded-xl hover:border-[#0A6ED1] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
-            <ChevronLeft className="w-4 h-4 inline" /> Prev
+            <ChevronLeft className="w-4 h-4" />
+            Previous
           </button>
 
-          {isFlipped && (
-            <div className="flex gap-2">
+          <div className="flex items-center gap-4">
+            <button
+              onClick={() => setIsFlipped(!isFlipped)}
+              className="flex items-center gap-2 px-4 py-2 bg-[#E8EAF6] text-[#0A6ED1] rounded-xl hover:bg-[#0A6ED1] hover:text-white transition-colors"
+            >
+              <RotateCcw className="w-4 h-4" />
+              Flip Card
+            </button>
+
+            {isFlipped && !completedCards.has(currentCard.id) && (
               <button
-                onClick={markCardCorrect}
-                className="px-4 py-2 bg-green-600 text-white rounded-xl hover:bg-green-700"
+                onClick={markCardComplete}
+                className="px-4 py-2 bg-[#2BA84A] text-white rounded-xl hover:bg-[#228B3A] transition-colors"
               >
-                Got it 👍
+                Got it!
               </button>
-              <button
-                onClick={markCardWrong}
-                className="px-4 py-2 bg-red-500 text-white rounded-xl hover:bg-red-600"
-              >
-                Review Again 👀
-              </button>
-            </div>
-          )}
+            )}
+          </div>
 
           <button
             onClick={nextCard}
-            className="px-4 py-2 bg-[#0A6ED1] text-white rounded-xl hover:bg-[#0859ab]"
+            className="flex items-center gap-2 px-4 py-2 bg-[#0A6ED1] text-white rounded-xl hover:bg-[#0859ab] transition-colors"
           >
-            {currentCardIndex === selectedSet.cards.length - 1 ? 'Complete Set' : 'Next'} <ChevronRight className="w-4 h-4 inline" />
+            {currentCardIndex === selectedSet.cards.length - 1 ? 'Complete Set' : 'Next'}
+            <ChevronRight className="w-4 h-4" />
           </button>
         </div>
 
-        <div className="w-full bg-gray-200 rounded-full h-2 mt-6">
-          <div
-            className="bg-[#0A6ED1] h-2 rounded-full transition-all"
-            style={{ width: `${progress}%` }}
-          />
+        {/* Card Tags */}
+        <div className="mt-6 text-center">
+          <div className="flex justify-center gap-2 flex-wrap">
+            {currentCard.tags.map((tag, index) => (
+              <span key={index} className="px-2 py-1 bg-[#E8EAF6] text-[#0A6ED1] rounded-full text-sm">
+                {tag}
+              </span>
+            ))}
+          </div>
         </div>
       </div>
     );
@@ -530,47 +423,78 @@ export const Flashcards: React.FC = () => {
 
   return (
     <div className="p-6 max-w-7xl mx-auto">
-      <h1 className="text-3xl font-bold mb-6">Flashcards</h1>
-
-      <div className="flex gap-4 mb-6">
-        <div className="flex-1 relative">
-          <Search className="w-5 h-5 text-gray-500 absolute left-3 top-1/2 -translate-y-1/2" />
-          <input
-            type="text"
-            placeholder="Search sets..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full pl-10 pr-4 py-2 border rounded-xl"
-          />
-        </div>
-
-        <select
-          value={categoryFilter}
-          onChange={(e) => setCategoryFilter(e.target.value)}
-          className="px-4 py-2 border rounded-xl"
-        >
-          <option value="all">All Categories</option>
-          {categories.map(c => (
-            <option key={c} value={c}>{c}</option>
-          ))}
-        </select>
+      {/* Header */}
+      <div className="mb-8">
+        <h1 className="text-3xl font-bold text-[#0B2447] mb-2">Flashcards</h1>
+        <p className="text-[#4A5568]">Test your knowledge with interactive flashcard sets</p>
       </div>
 
+      {/* Stats */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+        <div className="bg-white rounded-2xl shadow-[0_6px_24px_rgba(0,0,0,0.08)] p-6">
+          <div className="text-2xl font-bold text-[#0B2447]">{mockFlashcardSets.length}</div>
+          <div className="text-sm text-[#4A5568]">Flashcard Sets</div>
+        </div>
+        <div className="bg-white rounded-2xl shadow-[0_6px_24px_rgba(0,0,0,0.08)] p-6">
+          <div className="text-2xl font-bold text-[#0A6ED1]">{mockFlashcardSets.reduce((sum, set) => sum + set.cards.length, 0)}</div>
+          <div className="text-sm text-[#4A5568]">Total Cards</div>
+        </div>
+        <div className="bg-white rounded-2xl shadow-[0_6px_24px_rgba(0,0,0,0.08)] p-6">
+          <div className="text-2xl font-bold text-[#FFD23F]">{mockFlashcardSets.reduce((sum, set) => sum + set.xpReward, 0)}</div>
+          <div className="text-sm text-[#4A5568]">Total XP Available</div>
+        </div>
+      </div>
+
+      {/* Filters */}
+      <div className="bg-white rounded-2xl shadow-[0_6px_24px_rgba(0,0,0,0.08)] p-6 mb-6">
+        <div className="flex flex-col md:flex-row gap-4">
+          <div className="flex-1">
+            <div className="relative">
+              <Search className="w-5 h-5 text-[#4A5568] absolute left-3 top-1/2 transform -translate-y-1/2" />
+              <input
+                type="text"
+                placeholder="Search flashcard sets..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="w-full pl-10 pr-4 py-2 border border-[#D6D9E0] rounded-xl focus:outline-none focus:ring-2 focus:ring-[#0A6ED1] focus:border-transparent"
+              />
+            </div>
+          </div>
+          <select
+            value={categoryFilter}
+            onChange={(e) => setCategoryFilter(e.target.value)}
+            className="px-4 py-2 border border-[#D6D9E0] rounded-xl focus:outline-none focus:ring-2 focus:ring-[#0A6ED1] focus:border-transparent"
+          >
+            <option value="all">All Categories</option>
+            {categories.map(category => (
+              <option key={category} value={category}>{category}</option>
+            ))}
+          </select>
+        </div>
+      </div>
+
+      {/* Flashcard Sets */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {filteredSets.map(set => (
-          <div key={set.id} className="bg-white shadow rounded-2xl p-6 hover:shadow-lg">
-            <h3 className="font-semibold text-lg mb-2">{set.title}</h3>
-            <p className="text-sm text-gray-600 mb-4">{set.description}</p>
-            <div className="flex justify-between items-center">
-              <span className="text-sm text-gray-500">+{set.xpReward} XP</span>
+        {filteredSets.map((set) => (
+          <div key={set.id} className="bg-white rounded-2xl shadow-[0_6px_24px_rgba(0,0,0,0.08)] p-6 hover:shadow-lg transition-shadow">
+            <div className="flex items-center gap-2 mb-3">
+              <span className="px-2 py-1 bg-[#E8EAF6] text-[#0A6ED1] rounded-full text-xs font-medium">
+                {set.category}
+              </span>
+              <span className="text-xs text-[#4A5568]">{set.cards.length} cards</span>
+            </div>
+            
+            <h3 className="font-semibold text-[#0B2447] mb-2">{set.title}</h3>
+            <p className="text-sm text-[#4A5568] mb-4">{set.description}</p>
+            
+            <div className="flex items-center justify-between">
+              <span className="text-sm text-[#4A5568] flex items-center gap-1">
+                <Star className="w-4 h-4" />
+                +{set.xpReward} XP
+              </span>
               <button
-                onClick={() => {
-                  setSelectedSet(set);
-                  setCurrentCardIndex(0);
-                  setCorrectCards(new Set());
-                  setWrongCards(new Set());
-                }}
-                className="px-4 py-2 bg-[#0A6ED1] text-white rounded-xl hover:bg-[#0859ab]"
+                onClick={() => setSelectedSet(set)}
+                className="bg-[#0A6ED1] hover:bg-[#0859ab] text-white font-medium py-2 px-4 rounded-xl transition-colors"
               >
                 Start Set
               </button>
@@ -578,6 +502,14 @@ export const Flashcards: React.FC = () => {
           </div>
         ))}
       </div>
+
+      {filteredSets.length === 0 && (
+        <div className="text-center py-12">
+          <Brain className="w-16 h-16 text-[#D6D9E0] mx-auto mb-4" />
+          <h3 className="text-lg font-medium text-[#4A5568] mb-2">No flashcard sets found</h3>
+          <p className="text-[#4A5568]">Try adjusting your filters or search terms</p>
+        </div>
+      )}
     </div>
   );
 };

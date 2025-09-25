@@ -1,4 +1,4 @@
-import { create } from 'zustand';
+import { create } from 'zustand'
 import { persist } from 'zustand/middleware';
 import { User } from '../types';
 
@@ -19,6 +19,7 @@ interface RegisterData {
   lastName: string;
   employeeId: string;
   role: string;
+  learningProfile?: "Data Scientist" | "Business Analyst";
 }
 
 const mockUsers: User[] = [

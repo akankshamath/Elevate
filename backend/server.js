@@ -1,15 +1,52 @@
 const express = require('express');
 const OpenAI = require('openai');
 const cors = require('cors');
+const fs = require('fs');
+const path = require('path');
+const dotenv = require('dotenv');
+const { defaultModules } = require('./modulesCatalog');
+
+// Load environment variables early (.env.local preferred, search backend and repo root)
+const candidateEnvPaths = [
+  path.resolve(__dirname, '.env.local'),
+  path.resolve(__dirname, '.env'),
+  path.resolve(__dirname, '..', '.env.local'),
+  path.resolve(__dirname, '..', '.env'),
+];
+
+let loadedEnvPath = null;
+for (const p of candidateEnvPaths) {
+  if (fs.existsSync(p)) {
+    dotenv.config({ path: p });
+    loadedEnvPath = p;
+    break;
+  }
+}
+
+if (!loadedEnvPath) {
+  // Fallback to default search if nothing matched
+  dotenv.config();
+}
+
+console.log(`Env loaded from: ${loadedEnvPath || 'default resolution (no explicit .env file found)'}`);
+
 const supabase = require('./supabase');
-require('dotenv').config();
 
 const app = express();
 const port = 3001;
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY
-});
+// Resolve OpenAI API key with alias support
+const resolvedOpenAIKey =
+  process.env.OPENAI_API_KEY ||
+  process.env.VITE_OPENAI_API_KEY ||
+  process.env.NEXT_PUBLIC_OPENAI_API_KEY;
+
+const openaiEnabled = Boolean(resolvedOpenAIKey);
+if (!openaiEnabled) {
+  console.warn('Warning: OPENAI_API_KEY not set. Chat endpoint will be disabled.');
+}
+
+const openai = openaiEnabled ? new OpenAI({ apiKey: resolvedOpenAIKey }) : null;
 
 app.use(cors());
 app.use(express.json());
@@ -23,6 +60,32 @@ const agentTools = [
       parameters: {
         type: "object",
         properties: {},
+        required: []
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_user_module_progress",
+      description: "Get the user's module progress and last opened timestamps",
+      parameters: {
+        type: "object",
+        properties: {},
+        required: []
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_recommended_modules",
+      description: "Return top recommended learning modules for the user based on role and incomplete progress",
+      parameters: {
+        type: "object",
+        properties: {
+          limit: { type: "number", description: "Max number of recommendations", default: 3 }
+        },
         required: []
       }
     }
@@ -715,6 +778,57 @@ const toolHandlers = {
   get_user_tasks: async (args, userId) => {
     return await TaskService.getUserTasks(userId);
   },
+  get_user_module_progress: async (args, userId) => {
+    try {
+      const { data, error } = await supabase
+        .from('user_modules')
+        .select('module_id, progress, last_opened_at')
+        .eq('user_id', userId);
+      if (error) throw error;
+      return { success: true, progress: data || [] };
+    } catch (e) {
+      return { success: true, progress: [] };
+    }
+  },
+  get_recommended_modules: async (args, userId) => {
+    try {
+      // Get user role
+      const profile = await TaskService.getUserProfile(userId);
+      const role = profile.success ? profile.profile.role : 'Data Scientist';
+      const isBA = role.includes('Business');
+
+      // Get catalog filtered by role
+      let { data: mods, error } = await supabase.from('modules').select('*');
+      if (error) throw error;
+      const catalog = (mods || []).map((m) => ({
+        id: m.id,
+        title: m.title,
+        category: m.category,
+        difficulty: m.difficulty,
+        xpReward: m.xp_reward,
+        role: m.role,
+      })).filter((m) => (isBA ? m.id.startsWith('ba-') : m.id.startsWith('ds-')));
+
+      // Get progress
+      const { data: prog } = await supabase
+        .from('user_modules')
+        .select('module_id, progress')
+        .eq('user_id', userId);
+      const done = new Set((prog || []).filter(p => (p.progress || 0) >= 100).map(p => p.module_id));
+
+      // Recommend incomplete, sort by difficulty then xp
+      const incomplete = catalog.filter(m => !done.has(m.id));
+      incomplete.sort((a, b) => (a.difficulty - b.difficulty) || (b.xpReward - a.xpReward));
+      const limit = Math.max(1, Math.min(5, (args && args.limit) || 3));
+      const top = incomplete.slice(0, limit);
+      return { success: true, recommendations: top };
+    } catch (e) {
+      // Fallback to built-in list
+      const isBA = false;
+      const catalog = defaultModules.filter((m) => (isBA ? m.id.startsWith('ba-') : m.id.startsWith('ds-')));
+      return { success: true, recommendations: catalog.slice(0, (args && args.limit) || 3) };
+    }
+  },
   
   complete_task: async (args, userId) => {
     return await TaskService.completeTask(args.taskId, userId);
@@ -746,6 +860,11 @@ const toolHandlers = {
 
 
 app.post("/api/chat", async (req, res) => {
+  if (!openaiEnabled || !openai) {
+    return res.status(503).json({
+      response: "Chat is temporarily unavailable because OPENAI_API_KEY is not configured on the server.",
+    });
+  }
   try {
     const { messages, userId } = req.body;
 
@@ -958,6 +1077,119 @@ app.get('/health', (req, res) => {
       'Proactive coaching suggestions'
     ]
   });
+});
+
+// ===== Modules API (Supabase-backed with safe fallback) =====
+app.get('/api/modules', async (req, res) => {
+  const role = req.query.role;
+  try {
+    const { data, error } = await supabase
+      .from('modules')
+      .select('*');
+    if (error) throw error;
+
+    // Map DB snake_case to frontend's expected camelCase
+    let modules = (data || []).map((m) => ({
+      id: m.id,
+      title: m.title,
+      category: m.category,
+      difficulty: m.difficulty,
+      estimatedMinutes: m.estimated_minutes,
+      totalLessons: m.total_lessons,
+      xpReward: m.xp_reward,
+      description: m.description,
+      tags: m.tags,
+      videoUrl: m.video_url,
+      thumbnail: m.thumbnail,
+      role: m.role,
+      progress: 0,
+    }));
+    if (role) {
+      const isBA = role.includes('Business');
+      modules = modules.filter((m) => (isBA ? m.id.startsWith('ba-') : m.id.startsWith('ds-')));
+    }
+    return res.json({ success: true, modules });
+  } catch (err) {
+    // Fallback to built-in catalog
+    let modules = defaultModules;
+    if (role) {
+      const isBA = role.includes('Business');
+      modules = modules.filter((m) => (isBA ? m.id.startsWith('ba-') : m.id.startsWith('ds-')));
+    }
+    modules = modules.map((m) => ({ ...m, progress: 0 }));
+    return res.json({ success: true, modules, fallback: true });
+  }
+});
+
+app.get('/api/user-modules/:userId', async (req, res) => {
+  const { userId } = req.params;
+  try {
+    const { data, error } = await supabase
+      .from('user_modules')
+      .select('module_id, progress, last_opened_at')
+      .eq('user_id', userId);
+    if (error) throw error;
+    return res.json({ success: true, progress: data || [] });
+  } catch (err) {
+    // If table missing, return empty progress so UI can function
+    return res.json({ success: true, progress: [] });
+  }
+});
+
+app.post('/api/user-modules/progress', async (req, res) => {
+  try {
+    const { userId, moduleId, progress, lastOpenedAt } = req.body;
+    if (!userId || !moduleId) {
+      return res.status(400).json({ success: false, error: 'userId and moduleId are required' });
+    }
+    const payload = {
+      user_id: userId,
+      module_id: moduleId,
+      progress: typeof progress === 'number' ? progress : 0,
+      last_opened_at: lastOpenedAt || new Date().toISOString(),
+    };
+    const { error } = await supabase
+      .from('user_modules')
+      .upsert(payload, { onConflict: 'user_id,module_id' });
+    if (error) throw error;
+    return res.json({ success: true });
+  } catch (err) {
+    return res.status(200).json({ success: true, fallback: true });
+  }
+});
+
+// Admin: seed modules catalog into Supabase (run once after creating tables)
+app.post('/api/admin/seed-modules', async (req, res) => {
+  try {
+    const payload = defaultModules.map((m) => ({
+      id: m.id,
+      title: m.title,
+      category: m.category,
+      difficulty: m.difficulty,
+      estimated_minutes: m.estimatedMinutes,
+      total_lessons: m.totalLessons,
+      xp_reward: m.xpReward,
+      description: m.description,
+      tags: m.tags,
+      video_url: m.videoUrl,
+      thumbnail: m.thumbnail,
+      role: m.role,
+    }));
+
+    const { error } = await supabase
+      .from('modules')
+      .upsert(payload, { onConflict: 'id' });
+
+    if (error) throw error;
+    return res.json({ success: true, inserted: payload.length });
+  } catch (err) {
+    return res.status(500).json({
+      success: false,
+      error: String(err.message || err),
+      hint:
+        'Make sure the modules table exists with the expected columns. See README/SQL instructions to create schema and RLS policies.',
+    });
+  }
 });
 
 app.listen(port, () => {

@@ -20,22 +20,7 @@ export const RegisterForm: React.FC = () => {
   const navigate = useNavigate();
   const setUser = useAuthStore((state) => state.setUser);
 
-  const roleOptions = [
-    'Software Engineer I',
-    'Software Engineer II',
-    'Senior Software Engineer',
-    'Staff Software Engineer',
-    'Principal Engineer',
-    'Engineering Manager',
-    'Product Manager',
-    'Senior Product Manager',
-    'UX Designer',
-    'Senior UX Designer',
-    'Data Scientist',
-    'DevOps Engineer',
-    'QA Engineer',
-    'Technical Lead'
-  ];
+  const roleOptions = ['Data Scientist', 'Business Analyst'];
 
 
   // Mock employee lookup
@@ -95,7 +80,7 @@ export const RegisterForm: React.FC = () => {
         lastName: u.last_name,
         employeeId: u.employee_id,
         department: u.department,
-        role: u.role,
+        role: (formData.role || u.role),
         managerName: u.manager_name,
         startDate: u.start_date,
         level: u.level,
@@ -281,6 +266,9 @@ export const RegisterForm: React.FC = () => {
                   </option>
                 ))}
               </select>
+              <p className="text-xs text-[#4A5568] mt-1">
+                This determines which learning modules you'll see
+              </p>
             </div>
 
             <button
