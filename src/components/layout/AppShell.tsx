@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { 
   Home, 
@@ -11,7 +11,9 @@ import {
   Search,
   Menu,
   X,
-  MessageCircle
+  MessageCircle,
+  Maximize2,
+  Minimize2
 } from 'lucide-react';
 import { useAuthStore } from '../../stores/authStore';
 import { XpBadge } from '../ui/XpBadge';
@@ -34,11 +36,25 @@ interface AppShellProps {
 export const AppShell: React.FC<AppShellProps> = ({ children }) => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
+  const [chatFullscreen, setChatFullscreen] = useState(false);
   const location = useLocation();
   const navigate = useNavigate();
   const { user, logout } = useAuthStore();
 
   if (!user) return null;
+
+  // Keyboard shortcut for fullscreen toggle (F11 or Cmd/Ctrl + F)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (chatOpen && (e.key === 'F11' || (e.metaKey && e.key === 'f') || (e.ctrlKey && e.key === 'f'))) {
+        e.preventDefault();
+        setChatFullscreen(!chatFullscreen);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [chatOpen, chatFullscreen]);
 
   return (
     <div className="min-h-screen bg-[#F5F7FA]">
@@ -203,32 +219,54 @@ export const AppShell: React.FC<AppShellProps> = ({ children }) => {
       <AnimatePresence>
         {chatOpen && (
           <>
+            {/* Backdrop - only show on mobile when not fullscreen */}
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               onClick={() => setChatOpen(false)}
-              className="fixed inset-0 bg-black/50 z-50 lg:hidden"
+              className={`fixed inset-0 bg-black/50 z-50 ${chatFullscreen ? 'hidden' : 'lg:hidden'}`}
             />
             
             <motion.div
               initial={{ x: 400 }}
               animate={{ x: 0 }}
               exit={{ x: 400 }}
-              className="fixed top-0 right-0 h-full w-96 bg-white shadow-2xl z-50 flex flex-col"
+              className={`fixed top-0 right-0 h-full bg-white shadow-2xl z-50 flex flex-col ${
+                chatFullscreen 
+                  ? 'w-full' 
+                  : 'w-96'
+              }`}
             >
               <div className="p-4 border-b border-[#D6D9E0] flex items-center justify-between">
                 <h2 className="font-semibold text-[#0B2447]">AI Career Coach</h2>
-                <button
-                  onClick={() => setChatOpen(false)}
-                  className="p-2 rounded-lg hover:bg-gray-100"
-                >
-                  <X className="w-5 h-5" />
-                </button>
+                <div className="flex items-center gap-2">
+                  {/* Fullscreen/Minimize Toggle */}
+                  <button
+                    onClick={() => setChatFullscreen(!chatFullscreen)}
+                    className="p-2 rounded-lg hover:bg-gray-100 transition-colors"
+                    title={chatFullscreen ? 'Minimize (F11 or Cmd/Ctrl+F)' : 'Maximize (F11 or Cmd/Ctrl+F)'}
+                  >
+                    {chatFullscreen ? (
+                      <Minimize2 className="w-5 h-5" />
+                    ) : (
+                      <Maximize2 className="w-5 h-5" />
+                    )}
+                  </button>
+                  
+                  {/* Close Button */}
+                  <button
+                    onClick={() => setChatOpen(false)}
+                    className="p-2 rounded-lg hover:bg-gray-100 transition-colors"
+                    title="Close chat"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
               </div>
               
-              <div className="flex-1 p-4">
-                <ChatBot />
+              <div className="flex-1 overflow-hidden">
+                <ChatBot isFullscreen={chatFullscreen} />
               </div>
             </motion.div>
           </>

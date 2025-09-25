@@ -10,7 +10,11 @@ interface ChatMessage {
   timestamp: Date;
 }
 
-export const ChatBot: React.FC = () => {
+interface ChatBotProps {
+  isFullscreen?: boolean;
+}
+
+export const ChatBot: React.FC<ChatBotProps> = ({ isFullscreen = false }) => {
   const [messages, setMessages] = useState<ChatMessage[]>([
     {
       id: '1',
@@ -229,7 +233,7 @@ ${incomplete.map(m => `• ${m.title} (${m.category})`).join('\n')}`;
   };
 
   return (
-    <div className="flex flex-col h-full max-h-screen">
+    <div className={`flex flex-col h-full ${isFullscreen ? 'max-h-screen' : 'max-h-[calc(100vh-80px)]'}`}>
       {/* Header */}
       <div className="flex-shrink-0 p-4 border-b border-[#D6D9E0] bg-white">
         <div className="flex items-center justify-between">
