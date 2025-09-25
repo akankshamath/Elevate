@@ -40,43 +40,52 @@ export const Dashboard: React.FC = () => {
   const triggerXpGain = useGameStore((state) => state.triggerXpGain);
 
   const { tasks, completeTask, editTask, fetchTasks } = useTaskStore();
-  const { user, updateUser   } = useAuthStore();
+  const { user, updateUser } = useAuthStore();
 
-useEffect(() => {
-  if (user?.id) {
-    fetchTasks(user.id);
-  }
-}, [user?.id]);
+  useEffect(() => {
+    if (user?.id) {
+      fetchTasks(user.id);
+    }
+  }, [user?.id]);
+
   const { modules } = useModuleStore();
 
   if (!user) return null;
 
-  
-  const currentLevelXp = (user.level - 1) * 150; 
+  // --- XP + Level Logic ---
+  const xpPerLevel = 150; // flat requirement per level (can make dynamic later)
+  const currentLevelXp = (user.level - 1) * xpPerLevel;
   const xpInCurrentLevel = user.currentXp - currentLevelXp;
-  const xpNeededForNextLevel = 150;
-  const progressToNextLevel = Math.min(100, Math.max(0, (xpInCurrentLevel / xpNeededForNextLevel) * 100));
+  const xpNeededForNextLevel = xpPerLevel;
+  const progressToNextLevel = Math.min(
+    100,
+    Math.max(0, (xpInCurrentLevel / xpNeededForNextLevel) * 100)
+  );
 
-  const handleTaskToggle = (taskId: string, points: number, currentStatus: string) => {
-    const task = tasks.find(t => t.id === taskId);
+  const handleTaskToggle = (
+    taskId: string,
+    points: number,
+    currentStatus: string
+  ) => {
+    const task = tasks.find((t) => t.id === taskId);
     if (!task || !user) return;
 
     if (currentStatus === "done") {
       editTask(taskId, { status: "todo", completedAt: undefined });
-      
+
       const newXp = Math.max(0, user.currentXp - points);
-      const newLevel = Math.max(1, Math.floor(newXp / 150) + 1);
-      
+      const newLevel = Math.max(1, Math.floor(newXp / xpPerLevel) + 1);
+
       updateUser({
         currentXp: newXp,
         level: newLevel,
       });
     } else {
       completeTask(taskId);
-      
+
       const newXp = user.currentXp + points;
-      const newLevel = Math.floor(newXp / 150) + 1;
-      
+      const newLevel = Math.floor(newXp / xpPerLevel) + 1;
+
       updateUser({
         currentXp: newXp,
         level: Math.max(newLevel, user.level),
@@ -149,7 +158,7 @@ useEffect(() => {
                   </div>
                 </ProgressRing>
                 <p className="text-sm text-[#4A5568]">
-                  {user.currentXp.toLocaleString()} /{" "}
+                  {xpInCurrentLevel.toLocaleString()} /{" "}
                   {xpNeededForNextLevel.toLocaleString()} XP
                 </p>
               </div>
@@ -201,6 +210,7 @@ useEffect(() => {
         </div>
       </div>
 
+      {/* Checklist + Modules */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-6">
         {/* Checklist */}
         <div className="bg-white rounded-2xl shadow p-6">
@@ -221,14 +231,16 @@ useEffect(() => {
             {tasks.slice(0, 3).map((task) => {
               const dueDateInfo = getDueDateStatus(task.dueDate);
               const isCompleted = task.status === "done";
-              
+
               return (
                 <div
                   key={task.id}
                   className="flex items-center gap-4 p-4 bg-[#F5F7FA] rounded-xl"
                 >
                   <button
-                    onClick={() => handleTaskToggle(task.id, task.points, task.status)}
+                    onClick={() =>
+                      handleTaskToggle(task.id, task.points, task.status)
+                    }
                     className={`w-6 h-6 border-2 rounded-lg flex items-center justify-center transition-all duration-200 ${
                       isCompleted
                         ? "bg-[#2BA84A] border-[#2BA84A] text-white"
@@ -237,7 +249,7 @@ useEffect(() => {
                   >
                     {isCompleted && <Check className="w-4 h-4" />}
                   </button>
-                  
+
                   <div className="flex-1">
                     <h4
                       className={`font-medium transition-colors ${
@@ -258,11 +270,18 @@ useEffect(() => {
                       )}
                       {isCompleted && (
                         <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-green-50 text-green-700">
-                          Completed {task.completedAt ? new Date(task.completedAt).toLocaleDateString() : 'today'}
+                          Completed{" "}
+                          {task.completedAt
+                            ? new Date(task.completedAt).toLocaleDateString()
+                            : "today"}
                         </span>
                       )}
-                      <span className={`text-xs ${isCompleted ? 'text-green-600' : 'text-[#4A5568]'}`}>
-                        {isCompleted ? '+' : ''}+{task.points} XP
+                      <span
+                        className={`text-xs ${
+                          isCompleted ? "text-green-600" : "text-[#4A5568]"
+                        }`}
+                      >
+                        {isCompleted ? "+" : ""}+{task.points} XP
                       </span>
                     </div>
                   </div>
