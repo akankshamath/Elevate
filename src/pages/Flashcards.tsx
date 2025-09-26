@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { RotateCcw, ChevronLeft, ChevronRight, Star, Brain, Filter, Search } from 'lucide-react';
+import { RotateCcw, ChevronLeft, ChevronRight, Star, Brain, Filter, Search, Check, X } from 'lucide-react';
 import { useGameStore } from '../stores/gameStore';
 import { useAuthStore } from '../stores/authStore';
 
@@ -251,6 +251,9 @@ export const Flashcards: React.FC = () => {
   const [currentCardIndex, setCurrentCardIndex] = useState(0);
   const [isFlipped, setIsFlipped] = useState(false);
   const [completedCards, setCompletedCards] = useState<Set<string>>(new Set());
+  const [correctCards, setCorrectCards] = useState<Set<string>>(new Set());
+  const [incorrectCards, setIncorrectCards] = useState<Set<string>>(new Set());
+  const [showRecap, setShowRecap] = useState(false);
   const [categoryFilter, setCategoryFilter] = useState<string>('all');
   const [searchTerm, setSearchTerm] = useState('');
   const triggerXpGain = useGameStore(state => state.triggerXpGain);
@@ -273,20 +276,25 @@ export const Flashcards: React.FC = () => {
         }, 100);
       }
       
-      setSelectedSet(null);
-      setCurrentCardIndex(0);
-      setIsFlipped(false);
-      setCompletedCards(new Set());
+      // Show recap instead of going back to sets
+      setShowRecap(true);
     }
+  };
+
+  const handleBackToSets = () => {
+    setSelectedSet(null);
+    setCurrentCardIndex(0);
+    setIsFlipped(false);
+    setCompletedCards(new Set());
+    setCorrectCards(new Set());
+    setIncorrectCards(new Set());
+    setShowRecap(false);
   };
 
   const nextCard = () => {
     if (selectedSet && currentCardIndex < selectedSet.cards.length - 1) {
       setCurrentCardIndex(currentCardIndex + 1);
       setIsFlipped(false);
-    } else if (selectedSet) {
-      // All cards completed
-      handleSetComplete();
     }
   };
 
@@ -297,10 +305,28 @@ export const Flashcards: React.FC = () => {
     }
   };
 
-  const markCardComplete = () => {
+  const markCardComplete = (isCorrect: boolean) => {
     if (selectedSet) {
       const cardId = selectedSet.cards[currentCardIndex].id;
       setCompletedCards(prev => new Set([...prev, cardId]));
+      
+      if (isCorrect) {
+        setCorrectCards(prev => new Set([...prev, cardId]));
+      } else {
+        setIncorrectCards(prev => new Set([...prev, cardId]));
+      }
+      
+      // Check if all cards are completed
+      const allCardsCompleted = selectedSet.cards.every(card => 
+        [...completedCards, cardId].includes(card.id)
+      );
+      
+      if (allCardsCompleted) {
+        // All cards completed, show recap
+        setTimeout(() => {
+          handleSetComplete();
+        }, 500); // Small delay to show the button click feedback
+      }
     }
   };
 
@@ -312,6 +338,73 @@ export const Flashcards: React.FC = () => {
   });
 
   const categories = [...new Set(mockFlashcardSets.map(s => s.category))];
+
+  if (selectedSet && showRecap) {
+    const correctCardsList = selectedSet.cards.filter(card => correctCards.has(card.id));
+    const incorrectCardsList = selectedSet.cards.filter(card => incorrectCards.has(card.id));
+
+    return (
+      <div className="p-6 max-w-4xl mx-auto">
+        <div className="text-center mb-8">
+          <h1 className="text-3xl font-bold text-[#0B2447] mb-2">
+            Recap for {selectedSet.title}
+          </h1>
+        </div>
+
+        <div className="space-y-8">
+          {/* Things you got right */}
+          {correctCardsList.length > 0 && (
+            <div className="bg-white rounded-2xl shadow-[0_6px_24px_rgba(0,0,0,0.08)] p-6">
+              <div className="flex items-center gap-3 mb-4">
+                <Check className="w-6 h-6 text-green-600" />
+                <h2 className="text-xl font-semibold text-green-600">Things you got right</h2>
+              </div>
+              <ul className="space-y-3">
+                {correctCardsList.map((card) => (
+                  <li key={card.id} className="flex items-start gap-3">
+                    <div className="w-2 h-2 bg-green-600 rounded-full mt-2 flex-shrink-0"></div>
+                    <div>
+                      <p className="text-[#0B2447]">{card.question} — {card.answer}</p>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {/* Things to review */}
+          {incorrectCardsList.length > 0 && (
+            <div className="bg-white rounded-2xl shadow-[0_6px_24px_rgba(0,0,0,0.08)] p-6">
+              <div className="flex items-center gap-3 mb-4">
+                <X className="w-6 h-6 text-red-600" />
+                <h2 className="text-xl font-semibold text-red-600">Things to review</h2>
+              </div>
+              <ul className="space-y-3">
+                {incorrectCardsList.map((card) => (
+                  <li key={card.id} className="flex items-start gap-3">
+                    <div className="w-2 h-2 bg-red-600 rounded-full mt-2 flex-shrink-0"></div>
+                    <div>
+                      <p className="text-[#0B2447]">{card.question} — {card.answer}</p>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {/* Back to Flashcard Sets button */}
+          <div className="text-center">
+            <button
+              onClick={handleBackToSets}
+              className="bg-[#0A6ED1] hover:bg-[#0859ab] text-white font-medium py-3 px-8 rounded-xl transition-colors"
+            >
+              Back to Flashcard Sets
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   if (selectedSet) {
     const currentCard = selectedSet.cards[currentCardIndex];
@@ -353,14 +446,12 @@ export const Flashcards: React.FC = () => {
               {!isFlipped ? (
                 <>
                   <Brain className="w-12 h-12 text-[#0A6ED1] mx-auto mb-4" />
-                  <h2 className="text-xl font-semibold text-[#0B2447] mb-4">Question</h2>
                   <p className="text-lg text-[#4A5568] leading-relaxed">{currentCard.question}</p>
                   <p className="text-sm text-[#4A5568] mt-6 opacity-75">Click to reveal answer</p>
                 </>
               ) : (
                 <>
                   <Star className="w-12 h-12 text-[#FFD23F] mx-auto mb-4" />
-                  <h2 className="text-xl font-semibold text-[#0B2447] mb-4">Answer</h2>
                   <p className="text-lg text-[#4A5568] leading-relaxed">{currentCard.answer}</p>
                 </>
               )}
@@ -389,20 +480,49 @@ export const Flashcards: React.FC = () => {
             </button>
 
             {isFlipped && !completedCards.has(currentCard.id) && (
-              <button
-                onClick={markCardComplete}
-                className="px-4 py-2 bg-[#2BA84A] text-white rounded-xl hover:bg-[#228B3A] transition-colors"
-              >
-                Got it!
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => markCardComplete(true)}
+                  className="flex items-center gap-2 px-4 py-2 bg-[#2BA84A] text-white rounded-xl hover:bg-[#228B3A] transition-colors"
+                >
+                  <Check className="w-4 h-4" />
+                  Got it
+                </button>
+                <button
+                  onClick={() => markCardComplete(false)}
+                  className="flex items-center gap-2 px-4 py-2 bg-[#E11D48] text-white rounded-xl hover:bg-[#C41E3A] transition-colors"
+                >
+                  <X className="w-4 h-4" />
+                  Review Again
+                </button>
+              </div>
+            )}
+            
+            {completedCards.has(currentCard.id) && (
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-[#4A5568] flex items-center gap-2">
+                  {correctCards.has(currentCard.id) ? (
+                    <>
+                      <Check className="w-4 h-4 text-green-600" />
+                      Completed
+                    </>
+                  ) : (
+                    <>
+                      <X className="w-4 h-4 text-red-600" />
+                      Marked for review
+                    </>
+                  )}
+                </span>
+              </div>
             )}
           </div>
 
           <button
             onClick={nextCard}
-            className="flex items-center gap-2 px-4 py-2 bg-[#0A6ED1] text-white rounded-xl hover:bg-[#0859ab] transition-colors"
+            disabled={currentCardIndex === selectedSet.cards.length - 1}
+            className="flex items-center gap-2 px-4 py-2 bg-[#0A6ED1] text-white rounded-xl hover:bg-[#0859ab] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
-            {currentCardIndex === selectedSet.cards.length - 1 ? 'Complete Set' : 'Next'}
+            Next
             <ChevronRight className="w-4 h-4" />
           </button>
         </div>
